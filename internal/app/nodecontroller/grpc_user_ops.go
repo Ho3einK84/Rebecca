@@ -17,7 +17,7 @@ func (c Controller) grpcApplyUserOperation(ctx context.Context, client *nodeclie
 			operationID := fmt.Sprintf("%s-missing-user-%d", operation.OperationType, operation.ID)
 			var runtimeReq *nodev1.RuntimeConfigRequest
 			if prepared != nil && prepared.nodeID == node.ID && strings.TrimSpace(prepared.configJSON) != "" {
-				runtimeReq = &nodev1.RuntimeConfigRequest{OperationId: operationID, ConfigJson: prepared.configJSON, OvRuntimeJson: prepared.ovRuntimeJSON, DesiredRevision: uint64(operation.ID)}
+				runtimeReq = &nodev1.RuntimeConfigRequest{OperationId: operationID, ConfigJson: prepared.configJSON, OvRuntimeJson: prepared.ovRuntimeJSON, DesiredRevision: uint64(operation.ID), UserSpeedLimits: prepared.userSpeedLimits}
 			} else {
 				configJSON, syncErr := c.buildRuntimeConfig(ctx, node)
 				if syncErr != nil {
@@ -31,7 +31,7 @@ func (c Controller) grpcApplyUserOperation(ctx context.Context, client *nodeclie
 			if syncErr := c.prepareRuntimeRevision(ctx, client, node.ID, runtimeReq); syncErr != nil {
 				return syncErr
 			}
-			res, syncErr := client.Runtime().SyncConfig(ctx, runtimeReq)
+			res, syncErr := client.Runtime().SyncConfig(ctx, runtimeReq, client.RequestOptions(runtimeReq)...)
 			if syncErr != nil {
 				return syncErr
 			}
