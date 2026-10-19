@@ -46,6 +46,7 @@ import {
 	ArrowUpTrayIcon,
 	BoltIcon,
 	CheckCircleIcon,
+	ChevronDoubleUpIcon,
 	CloudArrowUpIcon,
 	TrashIcon as DeleteIcon,
 	PencilIcon as EditIcon,
@@ -78,6 +79,7 @@ import {
 import { useCoreSettings } from "contexts/CoreSettingsContext";
 import { useDashboard } from "contexts/DashboardContext";
 import useGetUser from "hooks/useGetUser";
+import { isMullvadOutbound } from "utils/mullvad";
 import { DEFAULT_SEARCH_MATCH_OPTIONS, matchesSearch } from "utils/searchMatch";
 import {
 	type FC,
@@ -92,7 +94,7 @@ import {
 } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-import { SiNordvpn, SiTorproject } from "react-icons/si";
+import { SiMullvad, SiNordvpn, SiTorproject } from "react-icons/si";
 import { useMutation, useQuery } from "react-query";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { fetch as apiFetch, getAPIErrorMessage } from "service/http";
@@ -133,6 +135,9 @@ const DnsPresetsModal = lazy(async () => ({
 const FakeDnsModal = lazy(async () => ({
 	default: (await import("../components/FakeDnsModal")).FakeDnsModal,
 }));
+const MullvadModal = lazy(async () => ({
+	default: (await import("../components/MullvadModal")).MullvadModal,
+}));
 const NordVPNModal = lazy(async () => ({
 	default: (await import("../components/NordVPNModal")).NordVPNModal,
 }));
@@ -170,6 +175,9 @@ const AddIconStyled = chakra(AddIcon, { baseStyle: { w: 3.5, h: 3.5 } });
 const DeleteIconStyled = chakra(DeleteIcon, { baseStyle: { w: 4, h: 4 } });
 const EditIconStyled = chakra(EditIcon, { baseStyle: { w: 4, h: 4 } });
 const ArrowUpIconStyled = chakra(ArrowUpIcon, { baseStyle: { w: 4, h: 4 } });
+const ChevronDoubleUpIconStyled = chakra(ChevronDoubleUpIcon, {
+	baseStyle: { w: 4, h: 4 },
+});
 const ArrowDownIconStyled = chakra(ArrowDownIcon, {
 	baseStyle: { w: 4, h: 4 },
 });
@@ -206,6 +214,11 @@ const MoreIconStyled = chakra(EllipsisHorizontalIcon, {
 const NordVPNIconStyled = () => (
 	<Box as="span" display="inline-flex" color="#4687ff">
 		{SiNordvpn({ size: 16, "aria-hidden": true })}
+	</Box>
+);
+const MullvadIconStyled = () => (
+	<Box as="span" display="inline-flex">
+		{SiMullvad({ size: 16, "aria-hidden": true })}
 	</Box>
 );
 const TorIconStyled: FC<{ size?: number }> = ({ size = 16 }) => (
@@ -809,6 +822,17 @@ export const CoreSettingsPage: FC = () => {
 		onOpen: onNordOpen,
 		onClose: onNordClose,
 	} = useDisclosure();
+	const {
+		isOpen: isMullvadOpen,
+		onOpen: onMullvadOpen,
+		onClose: onMullvadClose,
+	} = useDisclosure();
+	// the outbound the Mullvad window opens on; undefined for a new one
+	const [mullvadEditTag, setMullvadEditTag] = useState<string>();
+	const openMullvad = (tag?: string) => {
+		setMullvadEditTag(tag);
+		onMullvadOpen();
+	};
 	const {
 		isOpen: isOutboundSubsOpen,
 		onOpen: onOutboundSubsOpen,
@@ -1955,6 +1979,10 @@ export const CoreSettingsPage: FC = () => {
 
 	const moveOutboundUp = (index: number) => {
 		moveOutbound(index, index - 1);
+	};
+
+	const moveOutboundToTop = (index: number) => {
+		moveOutbound(index, 0);
 	};
 
 	const moveOutboundDown = (index: number) => {
@@ -3375,6 +3403,21 @@ export const CoreSettingsPage: FC = () => {
 		}
 	};
 
+	const handleMullvadSave = (
+		outbound: OutboundJson,
+		replaceIndex: number | null,
+	) => {
+		const previousTag =
+			replaceIndex === null
+				? ""
+				: String(getOutbounds()[replaceIndex]?.tag ?? "");
+		// a renamed outbound keeps its routing rules and balancers
+		if (previousTag && previousTag !== outbound.tag) {
+			renameOutboundReferences(previousTag, String(outbound.tag));
+		}
+		handleNordSave(outbound, replaceIndex);
+	};
+
 	const handleOutboundSave = (outboundJson: unknown, targetIds: string[]) => {
 		const outbound = outboundJson as OutboundJson;
 		const outbounds = getOutbounds();
@@ -3878,6 +3921,14 @@ export const CoreSettingsPage: FC = () => {
 			onClick: () => openRouteTest(row.originalIndex),
 		},
 		{
+			id: "move-top",
+			label: t("pages.xray.rules.top"),
+			icon: <ChevronDoubleUpIconStyled />,
+			isDisabled:
+				routingRuleSearch.trim().length > 0 || row.originalIndex === 0,
+			onClick: () => replaceRule(row.originalIndex, 0),
+		},
+		{
 			id: "move-up",
 			label: t("pages.xray.rules.up"),
 			icon: <ArrowUpIconStyled />,
@@ -3983,6 +4034,31 @@ export const CoreSettingsPage: FC = () => {
 			label: t("edit"),
 			icon: <EditIconStyled />,
 			onClick: () => editOutbound(row.originalIndex),
+		},
+		...(isMullvadOutbound(form.getValues("config.outbounds")?.[row.originalIndex])
+			? [
+					{
+						id: "edit-mullvad",
+						label: t("pages.xray.mullvad.edit"),
+						icon: <MullvadIconStyled />,
+						onClick: () =>
+							openMullvad(
+								String(
+									form.getValues("config.outbounds")?.[row.originalIndex]?.tag ?? "",
+								),
+							),
+					},
+				]
+			: []),
+		{
+			id: "move-top",
+			label: t("pages.xray.outbound.moveToTop"),
+			icon: <ChevronDoubleUpIconStyled />,
+			isDisabled:
+				outboundSearch.trim().length > 0 ||
+				outboundTrafficSort !== "default" ||
+				row.originalIndex === 0,
+			onClick: () => moveOutboundToTop(row.originalIndex),
 		},
 		{
 			id: "move-up",
@@ -5137,6 +5213,12 @@ export const CoreSettingsPage: FC = () => {
 														NordVPN
 													</MenuItem>
 													<MenuItem
+														icon={<MullvadIconStyled />}
+														onClick={() => openMullvad()}
+													>
+														Mullvad
+													</MenuItem>
+													<MenuItem
 														icon={<TorIconStyled />}
 														isDisabled={isApplyingTorProxy}
 														onClick={onTorProxyOpen}
@@ -5951,6 +6033,18 @@ export const CoreSettingsPage: FC = () => {
 						onClose={handleNordModalClose}
 						initialOutbounds={getOutbounds()}
 						onSave={handleNordSave}
+						onDelete={handleNordDelete}
+					/>
+				)}
+				{isMullvadOpen && (
+					<MullvadModal
+						isOpen={isMullvadOpen}
+						onClose={onMullvadClose}
+						initialTag={mullvadEditTag}
+						targetID={selectedTarget}
+						canPing={!isMasterTarget}
+						initialOutbounds={getOutbounds()}
+						onSave={handleMullvadSave}
 						onDelete={handleNordDelete}
 					/>
 				)}

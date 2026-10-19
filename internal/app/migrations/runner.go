@@ -20,7 +20,7 @@ var gooseMu sync.Mutex
 var migrationDialect string
 
 const (
-	latestGooseVersion         int64 = 64
+	latestGooseVersion         int64 = 65
 	legacyAlembicFinalRevision       = "23_drop_access_insights"
 	legacyAlembicFinalBaseline int64 = 16
 )
@@ -108,7 +108,10 @@ func (r Runner) run(ctx context.Context, targetVersion int64) error {
 		_, ensureErr := goose.EnsureDBVersion(r.DB)
 		return ensureErr
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return repairUsernameIndex(ctx, r.DB, dialect)
 }
 
 // refuseNewerSchema stops an older build from running against a schema that
