@@ -1,58 +1,22 @@
+import { Button } from "components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "components/ui/popover";
+import { Sheet, SheetContent, SheetTitle } from "components/ui/sheet";
+import { TriangleAlert } from "lucide-react";
+import { LogOut, ArrowLeftRight, Share, Menu, Bell, BookOpen, Briefcase, Check, Database, Clock, SquareCode, Settings, Settings2, Terminal, Copy, Eye, House as HeroHomeIcon, Languages, Link, Server, LayoutGrid, User as UserIcon, Users, Wrench, Bell as BellSolidIcon, Briefcase as BriefcaseSolidIcon, Settings as Cog6ToothSolidIcon, House as HomeSolidIcon, Users as UserGroupSolidIcon, User as UserSolidIcon } from "lucide-react";
 import {
-	Box,
-	Button,
-	chakra,
-	Drawer,
-	DrawerBody,
-	DrawerContent,
-	DrawerOverlay,
-	Flex,
-	HStack,
-	IconButton,
-	Menu,
-	MenuButton,
-	MenuItem,
-	MenuList,
-	type PlacementWithLogical,
-	Popover,
-	PopoverBody,
-	PopoverContent,
-	PopoverTrigger,
-	Portal,
-	Text,
-	useBreakpointValue,
-	useColorModeValue,
-	useDisclosure,
-	VStack,
-} from "@chakra-ui/react";
-import {
-	ArrowLeftOnRectangleIcon,
-	ArrowsRightLeftIcon,
-	ArrowUpOnSquareIcon,
-	Bars3Icon,
-	BookOpenIcon,
-	BriefcaseIcon,
-	CheckIcon,
-	CircleStackIcon,
-	ClockIcon,
-	CodeBracketSquareIcon,
-	Cog6ToothIcon,
-	Cog8ToothIcon,
-	CommandLineIcon,
-	DocumentDuplicateIcon,
-	EyeIcon,
-	HomeIcon as HeroHomeIcon,
-	LanguageIcon,
-	LinkIcon,
-	ServerStackIcon,
-	Squares2X2Icon,
-	UserCircleIcon,
-	UserGroupIcon,
-	WrenchScrewdriverIcon,
-} from "@heroicons/react/24/outline";
-import { motion } from "framer-motion";
+	Breadcrumb,
+	BreadcrumbItem,
+	BreadcrumbLink,
+	BreadcrumbList,
+	BreadcrumbPage,
+	BreadcrumbSeparator,
+} from "components/ui/breadcrumb";
+import { motion, useReducedMotion } from "framer-motion";
 import useGetUser from "hooks/useGetUser";
+import { useQuery } from "@tanstack/react-query";
 import {
+	type CSSProperties,
 	type ElementType,
 	type MouseEvent as ReactMouseEvent,
 	type PointerEvent as ReactPointerEvent,
@@ -68,41 +32,55 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logout as logoutSession } from "service/auth";
 import { AdminRole, AdminSection, AdminSudoScope } from "types/Admin";
 import { clearClientSession } from "utils/session";
-import { ReactComponent as ImperialIranFlag } from "../assets/imperial-iran-flag.svg";
+import { getSponsors, type SponsorAsset } from "service/sponsors";
+import ImperialIranFlag from "../assets/imperial-iran-flag.svg?react";
 import { AppSidebar } from "./AppSidebar";
+import { useSheetSwipeToClose } from "hooks/useSheetSwipeToClose";
+import { useDisclosure } from "hooks/useDisclosure";
+import { useMediaQuery } from "hooks/useMediaQuery";
+
+import { cn } from "lib/cn";
 import { GitHubStars } from "./GitHubStars";
 import { HeaderCalendar } from "./HeaderCalendar";
+import { NotificationBell } from "./NotificationBell";
 import ThemeSelector from "./ThemeSelector";
+import { SponsorCarousel } from "./SponsorCarousel";
 
-const iconProps = {
-	baseStyle: {
-		w: 4,
-		h: 4,
-	},
+/** Icons are sized by the call site with `size-*` classes now, not by a Chakra wrapper. */
+const LogoutIcon = LogOut;
+const MenuIcon = Menu;
+const LanguageIconStyled = Languages;
+const DocsIcon = SquareCode;
+const PHPMyAdminIcon = Database;
+const ExternalAppsIcon = Terminal;
+const PlaceholderIcon = Copy;
+const PersonIcon = UserIcon;
+const MasterSettingsIcon = Settings2;
+const XraySettingsIcon = Wrench;
+const TAB_ICONS: Record<string, [ElementType, ElementType]> = {
+	dashboard: [HeroHomeIcon, HomeSolidIcon],
+	users: [Users, UserGroupSolidIcon],
+	admins: [Briefcase, BriefcaseSolidIcon],
+	settings: [Settings, Cog6ToothSolidIcon],
+	myaccount: [UserIcon, UserSolidIcon],
+	notifications: [Bell, BellSolidIcon],
 };
+const ServicesIcon = LayoutGrid;
+const HostsIcon = Link;
+const HAProxyIcon = ArrowLeftRight;
+const NodesIcon = Server;
+const InsightsIcon = Eye;
+const RecentActionsIcon = Clock;
+const ShareIcon = Share;
+const TutorialIcon = BookOpen;
 
-const LogoutIcon = chakra(ArrowLeftOnRectangleIcon, iconProps);
-const MenuIcon = chakra(Bars3Icon, iconProps);
-const LanguageIconStyled = chakra(LanguageIcon, iconProps);
-const DocsIcon = chakra(CodeBracketSquareIcon, iconProps);
-const PHPMyAdminIcon = chakra(CircleStackIcon, iconProps);
-const ExternalAppsIcon = chakra(CommandLineIcon, iconProps);
-const PlaceholderIcon = chakra(DocumentDuplicateIcon, iconProps);
-const UserIcon = chakra(UserCircleIcon, iconProps);
-const HomeIcon = chakra(HeroHomeIcon, iconProps);
-const UsersIcon = chakra(UserGroupIcon, iconProps);
-const AdminsIcon = chakra(BriefcaseIcon, iconProps);
-const SettingsIcon = chakra(Cog6ToothIcon, iconProps);
-const MasterSettingsIcon = chakra(Cog8ToothIcon, iconProps);
-const XraySettingsIcon = chakra(WrenchScrewdriverIcon, iconProps);
-const ServicesIcon = chakra(Squares2X2Icon, iconProps);
-const HostsIcon = chakra(LinkIcon, iconProps);
-const HAProxyIcon = chakra(ArrowsRightLeftIcon, iconProps);
-const NodesIcon = chakra(ServerStackIcon, iconProps);
-const InsightsIcon = chakra(EyeIcon, iconProps);
-const RecentActionsIcon = chakra(ClockIcon, iconProps);
-const ShareIcon = chakra(ArrowUpOnSquareIcon, iconProps);
-const TutorialIcon = chakra(BookOpenIcon, iconProps);
+/** Primary tint for avatars and the active tab, per color mode. */
+const TINT_CLASS =
+	"bg-[color-mix(in_srgb,var(--primary-500)_12%,transparent)] text-[var(--primary-500)] dark:bg-[color-mix(in_srgb,var(--primary-300)_20%,transparent)] dark:text-[var(--primary-300)]";
+
+/** The frosted dock surface, shared by the bottom bar and its popovers. */
+const DOCK_CLASS =
+	"border-[rgba(15,23,42,0.08)]! bg-[color-mix(in_srgb,var(--rb-panel-surface)_78%,transparent)] shadow-[0_12px_32px_rgba(15,23,42,0.14),0_1px_3px_rgba(15,23,42,0.08)] [backdrop-filter:saturate(180%)_blur(20px)] dark:border-[rgba(255,255,255,0.09)]! dark:bg-[color-mix(in_srgb,var(--rb-panel-surface)_72%,transparent)] dark:shadow-[0_12px_32px_rgba(0,0,0,0.5)]";
 
 type SettingsMenuItem = {
 	key: string;
@@ -120,14 +98,48 @@ type BottomNavItem = {
 
 export function AppLayout() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-	const isMobile = useBreakpointValue({ base: true, md: false });
+	const isMobile = !useMediaQuery("(min-width: 48em)");
 	const sidebarDrawer = useDisclosure();
+	useSheetSwipeToClose();
 	const languageMenu = useDisclosure();
 	const userMenu = useDisclosure();
 	const accountMenu = useDisclosure();
 	const settingsMenu = useDisclosure();
 	const { t, i18n } = useTranslation();
 	const { userData, getUserIsSuccess } = useGetUser();
+	const canSeeSponsors =
+		getUserIsSuccess &&
+		(userData.role === AdminRole.FullAccess || userData.role === AdminRole.Sudo);
+	const sponsorsQuery = useQuery({ queryKey: ["sponsors"], queryFn: getSponsors, staleTime: 5 * 60 * 1000,
+		gcTime: 30 * 60 * 1000,
+		retry: false,
+		enabled: canSeeSponsors, });
+	const sponsorData = canSeeSponsors ? sponsorsQuery.data : undefined;
+	const sponsorHeaderItems = (sponsorData?.header ?? []).slice(0, 3).map(
+		(asset: SponsorAsset) => ({
+			id: asset.id,
+			src: asset.image_url,
+			alt: asset.alt || asset.label || "Sponsor",
+			href: asset.target_url,
+			label: asset.label,
+			isSponsor: true,
+		}),
+	);
+	const sponsorHeaderMobileItems = (sponsorData?.header_mobile ?? [])
+		.slice(0, 3)
+		.map((asset: SponsorAsset) => ({
+			id: asset.id,
+			src: asset.image_url,
+			alt: asset.alt || asset.label || "Sponsor",
+			href: asset.target_url,
+			label: asset.label,
+			isSponsor: true,
+		}));
+	const sponsorSidebarLogoItems = (sponsorData?.sidebar_logo ?? []).slice(0, 5);
+	const sponsorSidebarBanners = (sponsorData?.sidebar ?? []).slice(0, 5);
+	const mobileHeaderItems = sponsorHeaderMobileItems.length > 0
+		? sponsorHeaderMobileItems
+		: sponsorHeaderItems;
 	const navigate = useNavigate();
 	const location = useLocation();
 	const [activeLocationHash, setActiveLocationHash] = useState(
@@ -166,40 +178,14 @@ export function AppLayout() {
 	const [previewTabKey, setPreviewTabKey] = useState<string | null>(null);
 	const previewTabKeyRef = useRef<string | null>(null);
 	const [isNavDragging, setIsNavDragging] = useState(false);
-	const languagePlacement =
-		useBreakpointValue<PlacementWithLogical>({
-			base: "bottom-start",
-			md: isRTL ? "left-start" : "right-start",
-		}) ?? "bottom-start";
-
-	const menuBg = useColorModeValue("panel.surface", "panel.surface");
-	const menuBorder = useColorModeValue("panel.border", "panel.border");
-	const menuHover = useColorModeValue("panel.elevated", "panel.elevated");
-	const textColor = useColorModeValue("panel.text", "panel.text");
-	const secondaryTextColor = useColorModeValue(
-		"panel.textSecondary",
-		"panel.textSecondary",
-	);
-	const activePillBg = useColorModeValue(
-		"rgba(255, 255, 255, 0.18)",
-		"rgba(255, 255, 255, 0.08)",
-	);
-	const activePillShadow = useColorModeValue(
-		"0 6px 14px rgba(15, 23, 42, 0.1)",
-		"0 6px 14px rgba(0, 0, 0, 0.24)",
-	);
-	const shellBorder = useColorModeValue("panel.border", "panel.border");
-	const shellHeaderBg = useColorModeValue("panel.surface", "panel.surface");
-	const shellHeaderShadow = useColorModeValue(
-		"0 18px 48px rgba(15, 23, 42, 0.10)",
-		"0 18px 48px rgba(0, 0, 0, 0.32)",
-	);
-	const shellMainBg = useColorModeValue("panel.main", "panel.main");
-	const headerButtonBg = useColorModeValue("panel.elevated", "panel.elevated");
-	const headerButtonHoverBg = useColorModeValue(
-		"panel.borderStrong",
-		"panel.borderStrong",
-	);
+	const [pendingTabKey, setPendingTabKey] = useState<string | null>(null);
+	const reduceMotion = useReducedMotion();
+	const navSpring = reduceMotion
+		? { duration: 0 }
+		: { type: "spring" as const, stiffness: 300, damping: 30, mass: 0.8 };
+	const tapSpring = reduceMotion
+		? { duration: 0 }
+		: { type: "spring" as const, stiffness: 520, damping: 32, mass: 0.6 };
 
 	useEffect(() => {
 		const syncHash = () => setActiveLocationHash(window.location.hash);
@@ -247,6 +233,14 @@ export function AppLayout() {
 
 	const settingsMenuItems = useMemo(() => {
 		const items: Array<SettingsMenuItem | null> = [
+			isPrivilegedAdmin
+				? {
+						key: "errors",
+						label: "errors",
+						to: "/errors",
+						icon: InsightsIcon,
+					}
+				: null,
 			isPrivilegedAdmin && sectionAccess?.[AdminSection.Services]
 				? {
 						key: "services",
@@ -461,33 +455,29 @@ export function AppLayout() {
 	}, [isMobile, isRTL, sidebarDrawer]);
 
 	const bottomNavItems = useMemo<BottomNavItem[]>(() => {
-		const items: BottomNavItem[] = [];
 		const canSeeAdmins = Boolean(sectionAccess?.[AdminSection.Admins]);
-		items.push({ key: "users", label: t("nav.users"), to: "/users" });
+		const items: BottomNavItem[] = [
+			{ key: "users", label: t("nav.users"), to: "/users" },
+		];
 		if (canSeeAdmins) {
+			items.push({ key: "admins", label: t("nav.admins"), to: "/admins" });
+		}
+			if (items.length + 3 + (hasSettingsMenu ? 1 : 0) <= 5) {
 			items.push({
-				key: "admins",
-				label: t("nav.admins"),
-				to: "/admins",
+				key: "notifications",
+				label: t("notifications.menu"),
+				to: "/notifications",
 			});
 		}
-		items.push({
+		items.push({ key: "myaccount", label: t("nav.myaccount"), to: "/myaccount" });
+		if (hasSettingsMenu) {
+			items.push({ key: "settings", label: t("header.settings"), kind: "menu" });
+		}
+		items.splice(Math.floor((items.length + 1) / 2), 0, {
 			key: "dashboard",
 			label: t("dashboard"),
 			to: "/",
 		});
-		items.push({
-			key: "myaccount",
-			label: t("nav.myaccount"),
-			to: "/myaccount",
-		});
-		if (hasSettingsMenu) {
-			items.push({
-				key: "settings",
-				label: t("header.settings"),
-				kind: "menu",
-			});
-		}
 		return items;
 	}, [t, sectionAccess, hasSettingsMenu]);
 
@@ -501,26 +491,6 @@ export function AppLayout() {
 	);
 	const isSettingsRoute = Boolean(activeSettingsItem);
 	const activeSettingsKey = activeSettingsItem?.key ?? null;
-	const SettingsNavIcon = activeSettingsItem?.icon ?? SettingsIcon;
-	const popoverModifiers = useMemo(
-		() => [
-			{
-				name: "preventOverflow",
-				options: {
-					boundary: "viewport",
-					padding: 12,
-				},
-			},
-			{
-				name: "flip",
-				options: {
-					boundary: "viewport",
-					padding: 12,
-				},
-			},
-		],
-		[],
-	);
 
 	const resolveActive = useCallback(
 		(item: BottomNavItem) => {
@@ -536,7 +506,10 @@ export function AppLayout() {
 		const activeItem = bottomNavItems.find((item) => resolveActive(item));
 		return activeItem?.key ?? null;
 	}, [bottomNavItems, resolveActive]);
-	const selectedTabKey = previewTabKey ?? activeTabKey;
+	const selectedTabKey = previewTabKey ?? pendingTabKey ?? activeTabKey;
+	useEffect(() => {
+		setPendingTabKey((pending) => (pending === activeTabKey ? null : pending));
+	}, [activeTabKey]);
 
 	const navKeyAtPoint = (clientX: number, clientY: number) => {
 		for (const item of bottomNavItems) {
@@ -595,13 +568,17 @@ export function AppLayout() {
 		});
 	};
 
+	const resetNavDrag = () => {
+		navDragRef.current.active = false;
+		navDragRef.current.moved = false;
+		navDragRef.current.pointerId = null;
+	};
+
 	const finalizeNavDrag = () => {
 		if (!navDragRef.current.active) return;
 		const key = previewTabKeyRef.current;
 		const moved = navDragRef.current.moved;
-		navDragRef.current.active = false;
-		navDragRef.current.moved = false;
-		navDragRef.current.pointerId = null;
+		resetNavDrag();
 		if (navMoveRaf.current) {
 			window.cancelAnimationFrame(navMoveRaf.current);
 			navMoveRaf.current = null;
@@ -609,6 +586,11 @@ export function AppLayout() {
 		setIsNavDragging(false);
 		setPreviewTabKeySafe(null);
 		if (!moved) {
+			const target = bottomNavItems.find((item) => item.key === key);
+			if (key && key !== activeTabKey && target?.to && !accountHoldOpened.current) {
+				setPendingTabKey(key);
+				navigate(target.to);
+			}
 			return;
 		}
 		suppressNavClickUntil.current = Date.now() + 400;
@@ -620,6 +602,7 @@ export function AppLayout() {
 			return;
 		}
 		if (key !== activeTabKey && target.to) {
+			setPendingTabKey(key);
 			navigate(target.to);
 		}
 	};
@@ -630,9 +613,7 @@ export function AppLayout() {
 
 	const handleNavPointerCancel = () => {
 		if (!navDragRef.current.active) return;
-		navDragRef.current.active = false;
-		navDragRef.current.moved = false;
-		navDragRef.current.pointerId = null;
+		resetNavDrag();
 		if (navMoveRaf.current) {
 			window.cancelAnimationFrame(navMoveRaf.current);
 			navMoveRaf.current = null;
@@ -653,7 +634,7 @@ export function AppLayout() {
 		}
 		handleSettingsMenuClose();
 		handleAccountMenuClose();
-		navigate(to);
+		if (to !== location.pathname) navigate(to);
 	};
 
 	const clearAccountHoldTimer = () => {
@@ -784,864 +765,517 @@ export function AppLayout() {
 
 	return (
 		<>
-			<Box display="none" aria-hidden="true">
+			<div aria-hidden="true" className="hidden">
 				<ThemeSelector minimal trigger="icon" />
-			</Box>
-			<Flex
-				minH="100vh"
-				maxH="100vh"
-				overflow="hidden"
-				direction={isRTL ? "row-reverse" : "row"}
+			</div>
+			<div
 				dir={isRTL ? "rtl" : "ltr"}
-				bg="panel.app"
-				sx={{
-					"--rb-sidebar-offset": isMobile
-						? "0px"
-						: sidebarCollapsed
-							? "88px"
-							: "248px",
-				}}
+				className={cn(
+					"flex min-h-[100vh] max-h-[100vh] overflow-hidden bg-panel-app",
+					isRTL ? "flex-row-reverse" : "flex-row",
+				)}
+				style={
+					{
+						"--rb-sidebar-offset": isMobile
+							? "0px"
+							: sidebarCollapsed
+								? "88px"
+								: "248px",
+					} as CSSProperties
+				}
 			>
 				{/* persistent sidebar on md+; drawer on mobile */}
 				{!isMobile ? (
 					<AppSidebar
 						collapsed={sidebarCollapsed}
+						sponsors={sponsorSidebarLogoItems}
+						sidebarBanners={sponsorSidebarBanners}
 						onRequestExpand={() => setSidebarCollapsed(false)}
 					/>
 				) : null}
 
-				<Flex
+				<div
 					ref={contentRef}
-					flex="1"
-					direction="column"
-					minW="0"
-					overflow="hidden"
-					ml={isMobile || isRTL ? "0" : sidebarCollapsed ? "88px" : "248px"}
-					mr={isMobile || !isRTL ? "0" : sidebarCollapsed ? "88px" : "248px"}
-					transition="margin 0.3s cubic-bezier(0.16, 1, 0.3, 1)"
+					className="flex min-w-0 flex-1 flex-col overflow-hidden"
+					style={{
+						marginLeft: isMobile || isRTL ? "0" : sidebarCollapsed ? "88px" : "248px",
+						marginRight: isMobile || !isRTL ? "0" : sidebarCollapsed ? "88px" : "248px",
+						transition: "margin 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+					}}
 				>
-					<Box
-						as="header"
-						h="12"
-						minH="12"
-						borderWidth="1px"
-						borderColor={shellBorder}
-						borderRadius="2xl"
-						bg={shellHeaderBg}
-						boxShadow={shellHeaderShadow}
-						mt="3"
-						mx={{ base: "3", md: "4" }}
-						display="flex"
-						alignItems="center"
-						px={{ base: 3, md: 5 }}
-						justifyContent="space-between"
-						flexShrink={0}
-						position="sticky"
-						top="3"
-						zIndex={100}
-						userSelect="none"
-						gap={4}
-					>
-						<HStack spacing={3} alignItems="center" flex="1" minW="0">
-							<IconButton
-								size="sm"
-								variant="outline"
-								aria-label={t("a11y.toggleSidebar")}
-								onClick={() => {
+					<header className="sticky top-3 z-40 mx-3 mt-3 flex h-14 min-h-14 shrink-0 select-none items-center justify-between gap-4 rounded-2xl border border-panel-border! bg-panel-surface px-3 md:mx-4 md:px-5">
+						<div className="flex min-w-0 flex-1 items-center gap-3">
+							<Button aria-label={t("a11y.toggleSidebar")} onClick={() => {
 									if (isMobile) sidebarDrawer.onOpen();
 									else setSidebarCollapsed(!sidebarCollapsed);
-								}}
-								icon={<MenuIcon />}
-								flexShrink={0}
-								bg={headerButtonBg}
-								borderColor={shellBorder}
-								_hover={{ bg: headerButtonHoverBg }}
-							/>
-							<HStack
-								aria-label="Current location"
-								spacing="1"
-								minW="0"
-								overflow="hidden"
-								dir="ltr"
-							>
-								<Button
-									variant="link"
-									fontSize={{ base: "xs", md: "sm" }}
-									fontWeight="semibold"
-									color="panel.textSecondary"
-									flexShrink={0}
-									onClick={() => navigate("/")}
-									_hover={{ color: "panel.text" }}
-								>
-									dashboard
-								</Button>
-								{locationTrail.length > 1 && (
-									<>
-										<Text color="panel.textSecondary">→</Text>
-										<Button
-											variant="link"
-											fontSize={{ base: "xs", md: "sm" }}
-											fontWeight="semibold"
-											color="panel.textSecondary"
-											flexShrink={0}
-											onClick={openCurrentPage}
-											_hover={{ color: "panel.text" }}
-										>
-											{locationTrail[1]}
-										</Button>
-									</>
-								)}
-								{locationTrail.length > 2 && (
-									<Text
-										fontSize={{ base: "xs", md: "sm" }}
-										fontWeight="semibold"
-										color="panel.textSecondary"
-										whiteSpace="nowrap"
-										overflow="hidden"
-										textOverflow="ellipsis"
-									>
-										→ {locationTrail.slice(2).join(" → ")}
-									</Text>
-								)}
-							</HStack>
-						</HStack>
-						<HStack spacing={2} alignItems="center" flexShrink={0}>
-							<HeaderCalendar />
-							<GitHubStars />
+								}} variant="outline" size="icon" className="shrink-0 border-panel-border! bg-panel-elevated hover:bg-panel-border-strong">
+								<MenuIcon className="size-4" />
+							</Button>
 
-							{/* User Menu */}
-							{getUserIsSuccess && userData.username && (
-								<Menu
-									placement="bottom-end"
-									isLazy
-									autoSelect={false}
-									closeOnSelect={false}
-									isOpen={userMenu.isOpen}
-									onOpen={userMenu.onOpen}
-									onClose={handleUserMenuClose}
-								>
-									<MenuButton
-										as={Button}
-										size="sm"
-										variant="outline"
-										leftIcon={<UserIcon />}
-										aria-label={t("a11y.userMenu")}
-										fontSize="sm"
-										fontWeight="medium"
-										bg={headerButtonBg}
-										borderColor={shellBorder}
-										_hover={{ bg: headerButtonHoverBg }}
-										onClick={() => {
-											if (userMenu.isOpen) {
-												handleUserMenuClose();
-											} else {
-												userMenu.onOpen();
-											}
-										}}
-									>
-										<Text
-											display={{ base: "none", sm: "inline" }}
-											maxW={{ base: "100px", sm: "150px" }}
-											isTruncated
-										>
-											{userData.username}
-										</Text>
-									</MenuButton>
-									<MenuList
-										dir={isRTL ? "rtl" : "ltr"}
-										ref={userMenuContentRef}
-										minW="220px"
-										bg={menuBg}
-										borderColor={menuBorder}
-										color={textColor}
-										zIndex={9999}
-										userSelect="none"
-										sx={{
-											".chakra-menu__menuitem": {
-												bg: "transparent !important",
-												"&:hover": {
-													bg: `${menuHover} !important`,
-												},
-												"&:active, &:focus-visible": {
-													bg: `${menuHover} !important`,
-												},
-												"&:focus:not(:focus-visible)": {
-													bg: "transparent !important",
-												},
-											},
-											".rb-logout-menu-item[data-focus]:not(:hover):not(:focus-visible)":
-												{
-													bg: "transparent !important",
-												},
-										}}
-									>
-										{/* User Info */}
-										<Box
-											px={3}
-											py={2}
-											borderBottom="1px"
-											borderColor={menuBorder}
-										>
-											<VStack align="flex-start" spacing={1}>
-												<HStack spacing={2}>
-													<UserIcon />
-													<Text fontWeight="medium" fontSize="sm">
-														{userData.username}
-													</Text>
-												</HStack>
-												<Text fontSize="xs" color={secondaryTextColor}>
-													{roleLabel}
-												</Text>
-											</VStack>
-										</Box>
-
-										{/* Language Selector */}
-										<Menu
-											placement={languagePlacement}
-											strategy="fixed"
-											isOpen={languageMenu.isOpen}
-											onOpen={languageMenu.onOpen}
-											onClose={languageMenu.onClose}
-											closeOnSelect={false}
-											isLazy
-											autoSelect={false}
-										>
-											<MenuButton
-												as={Button}
-												leftIcon={<LanguageIconStyled />}
-												variant="ghost"
-												w="full"
-												h="40px"
-												justifyContent="flex-start"
-												fontWeight="500"
-												borderRadius="md"
-												px={3}
-												bg="transparent"
-												_hover={{ bg: menuHover }}
-												_active={{ bg: menuHover }}
-												_focusVisible={{ bg: menuHover }}
-												onClick={(e: ReactMouseEvent) => {
-													e.stopPropagation();
-													languageMenu.isOpen
-														? languageMenu.onClose()
-														: languageMenu.onOpen();
-												}}
+							{/* Stock shadcn Breadcrumb: the trail is the same, the markup is the kit's. */}
+							<Breadcrumb dir="ltr" className="hidden min-w-0 shrink md:block">
+								<BreadcrumbList className="flex-nowrap items-center gap-1 overflow-hidden text-xs whitespace-nowrap md:text-sm">
+									<BreadcrumbItem className="shrink-0">
+										<BreadcrumbLink asChild>
+											<button
+												type="button"
+												onClick={() => navigate("/")}
+												className="whitespace-nowrap font-semibold text-panel-text-secondary transition-colors hover:text-panel-text"
 											>
-												<HStack justify="space-between" w="full" minW={0}>
-													<Text>{t("header.language")}</Text>
-													<Text fontSize="xs" color={secondaryTextColor}>
-														{languageItems.find(
-															(item) => item.code === i18n.language,
-														)?.label || "English"}
-													</Text>
-												</HStack>
-											</MenuButton>
-											<Portal containerRef={userMenuContentRef}>
-												<MenuList
-													dir={isRTL ? "rtl" : "ltr"}
-													minW="160px"
-													bg={menuBg}
-													borderColor={menuBorder}
-													color={textColor}
-													zIndex={9999}
-													userSelect="none"
-													sx={{
-														".chakra-menu__menuitem": {
-															bg: "transparent !important",
-															"&:hover": {
-																bg: `${menuHover} !important`,
-															},
-															"&:active, &:focus-visible": {
-																bg: `${menuHover} !important`,
-															},
-															"&:focus:not(:focus-visible)": {
-																bg: "transparent !important",
-															},
-														},
-													}}
+												dashboard
+											</button>
+										</BreadcrumbLink>
+									</BreadcrumbItem>
+									{locationTrail.length > 1 && (
+										<>
+											<BreadcrumbSeparator className="text-panel-text-muted">→</BreadcrumbSeparator>
+											<BreadcrumbItem>
+												<BreadcrumbLink asChild>
+													<button
+														type="button"
+														onClick={openCurrentPage}
+														className="whitespace-nowrap font-semibold text-panel-text-secondary transition-colors hover:text-panel-text"
+													>
+														{locationTrail[1]}
+													</button>
+												</BreadcrumbLink>
+											</BreadcrumbItem>
+										</>
+									)}
+									{locationTrail.length > 2 && (
+										<BreadcrumbSeparator className="text-panel-text-muted">→</BreadcrumbSeparator>
+									)}
+									{locationTrail.length > 2 && (
+										<BreadcrumbItem className="min-w-0">
+											<BreadcrumbPage className="truncate text-xs font-semibold text-panel-text-secondary md:text-sm">
+												{locationTrail.slice(2).join(" → ")}
+											</BreadcrumbPage>
+										</BreadcrumbItem>
+									)}
+								</BreadcrumbList>
+							</Breadcrumb>
+							{mobileHeaderItems.length > 0 && (
+								<div className="block w-[160px] min-w-0 shrink sm:w-[220px] md:hidden md:w-[360px]">
+									<SponsorCarousel items={mobileHeaderItems} variant="banner" />
+								</div>
+							)}
+							{sponsorHeaderItems.length > 0 && (
+								<div className="hidden w-[160px] min-w-0 shrink sm:w-[220px] md:block md:w-[360px]">
+									<SponsorCarousel items={sponsorHeaderItems} variant="banner" />
+								</div>
+							)}
+						</div>
+
+						<div className="flex shrink-0 items-center gap-2">
+							<div className="flex h-[34px] items-center rounded-full border border-panel-border! bg-panel-elevated px-1">
+								<HeaderCalendar />
+								{getUserIsSuccess && userData.username && <NotificationBell />}
+								<GitHubStars />
+							</div>
+
+							{/* User menu */}
+							{getUserIsSuccess && userData.username && (
+								<DropdownMenu open={userMenu.isOpen} onOpenChange={(open) => {
+										if (open) userMenu.onOpen();
+										else handleUserMenuClose();
+									}}>
+									<DropdownMenuTrigger asChild>
+										<Button aria-label={t("a11y.userMenu")} variant="outline" className="h-[34px] min-w-[34px] rounded-full border-panel-border! bg-panel-elevated ps-1 pe-1 text-sm font-semibold hover:bg-panel-border-strong sm:pe-3">
+											<span className="flex items-center gap-2">
+												<span
+													className={cn(
+														"flex size-6 shrink-0 items-center justify-center rounded-full",
+														TINT_CLASS,
+													)}
 												>
+													<PersonIcon className="size-3.5" />
+												</span>
+												<span className="hidden max-w-[100px] truncate sm:inline sm:max-w-[130px]">
+													{userData.username}
+												</span>
+											</span>
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align={isRTL ? "start" : "end"} sideOffset={8} className="min-w-[236px]! rounded-xl border-panel-border! bg-panel-surface p-1.5 text-panel-text shadow-xl select-none">
+										<div ref={userMenuContentRef}>
+											{/* User info */}
+											<div className="mx-1.5 mt-1 mb-1.5 flex items-center gap-3 rounded-lg bg-panel-main px-3 py-2.5">
+												<span
+													className={cn(
+														"flex size-9 shrink-0 items-center justify-center rounded-full",
+														TINT_CLASS,
+													)}
+												>
+													<PersonIcon className="size-5" />
+												</span>
+												<div className="flex min-w-0 flex-col">
+													<span className="max-w-[160px] truncate text-sm font-semibold">
+														{userData.username}
+													</span>
+													<span className="text-xs text-panel-text-secondary">
+														{roleLabel}
+													</span>
+												</div>
+											</div>
+
+											{/* Language selector */}
+											<Popover open={languageMenu.isOpen} onOpenChange={(open) =>
+													open ? languageMenu.onOpen() : languageMenu.onClose()
+												}>
+												<PopoverTrigger asChild>
+													<Button onClick={(event: ReactMouseEvent) => event.stopPropagation()} variant="ghost" className="h-10 w-full justify-start gap-3 rounded-md bg-transparent px-3 font-medium text-panel-text hover:bg-panel-elevated focus-visible:bg-panel-elevated active:bg-panel-elevated">
+														<LanguageIconStyled className="size-4 shrink-0" />
+														<span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+															<span>{t("header.language")}</span>
+															<span className="text-xs text-panel-text-secondary">
+																{languageItems.find(
+																	(item) => item.code === i18n.language,
+																)?.label || "English"}
+															</span>
+														</span>
+													</Button>
+												</PopoverTrigger>
+												<PopoverContent side={isMobile ? "bottom" : isRTL ? "left" : "right"} align="start" className="min-w-[160px]! rounded-md border-panel-border! bg-panel-surface py-2 text-panel-text shadow-lg select-none">
 													{languageItems.map(({ code, label, flag }) => {
 														const isActiveLang = i18n.language === code;
 														return (
-															<MenuItem
+															<button
 																key={code}
+																type="button"
 																onClick={() => {
 																	changeLanguage(code);
 																	languageMenu.onClose();
 																}}
+																className="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm text-panel-text transition-colors hover:bg-panel-elevated focus-visible:bg-panel-elevated focus-visible:outline-none"
 															>
-																<HStack justify="space-between" w="full">
-																	<HStack spacing={2}>
-																		{code === "fa" ? (
-																			<ImperialIranFlag
-																				style={{
-																					width: "16px",
-																					height: "12px",
-																				}}
-																			/>
-																		) : (
-																			<ReactCountryFlag
-																				countryCode={flag}
-																				svg
-																				style={{
-																					width: "16px",
-																					height: "12px",
-																				}}
-																			/>
-																		)}
-																		<Text>{label}</Text>
-																	</HStack>
-																	{isActiveLang && <CheckIcon width={16} />}
-																</HStack>
-															</MenuItem>
+																<span className="flex items-center gap-2">
+																	{code === "fa" ? (
+																		<ImperialIranFlag
+																			style={{ width: "16px", height: "12px" }}
+																		/>
+																	) : (
+																		<ReactCountryFlag
+																			countryCode={flag}
+																			svg
+																			style={{ width: "16px", height: "12px" }}
+																		/>
+																	)}
+																	<span>{label}</span>
+																</span>
+																{isActiveLang && <Check width={16} />}
+															</button>
 														);
 													})}
-												</MenuList>
-											</Portal>
-										</Menu>
+												</PopoverContent>
+											</Popover>
 
-										{/* Theme Selector */}
-										<ThemeSelector
-											trigger="menuItem"
-											triggerLabel={t("header.theme")}
-											portalContainer={userMenuContentRef}
-											onModalOpen={handleThemeModalOpen}
-											onModalClose={handleThemeModalClose}
-										/>
+											{/* Theme selector */}
+											<ThemeSelector
+												trigger="menuItem"
+												triggerLabel={t("header.theme")}
+												portalContainer={userMenuContentRef}
+												onModalOpen={handleThemeModalOpen}
+												onModalClose={handleThemeModalClose}
+											/>
 
-										{/* Logout */}
-										<MenuItem
-											className="rb-logout-menu-item"
-											icon={<LogoutIcon />}
-											color="red.500"
-											bg="transparent"
-											_hover={{ bg: menuHover }}
-											_active={{ bg: "transparent" }}
-											_focus={{ bg: "transparent" }}
-											_focusVisible={{ bg: menuHover }}
-											sx={{
-												"&[data-focus]:not(:hover):not(:focus-visible)": {
-													bg: "transparent !important",
-												},
-											}}
-											onClick={async () => {
-												try {
-													await logoutSession();
-												} finally {
-													clearClientSession();
-													navigate("/login");
-												}
-											}}
-										>
-											{t("header.logout")}
-										</MenuItem>
-									</MenuList>
-								</Menu>
+											<DropdownMenuSeparator className="my-2 opacity-60" />
+											{/* Logout */}
+											<DropdownMenuItem onSelect={async () => {
+													try {
+														await logoutSession();
+													} finally {
+														clearClientSession();
+														navigate("/login");
+													}
+												}} className="px-3 py-1.5 text-sm text-[#E53E3E] focus:bg-[color-mix(in_srgb,#ef4444_12%,transparent)] focus:text-[#E53E3E]">
+												<LogoutIcon className="size-4" />
+												{t("header.logout")}
+											</DropdownMenuItem>
+										</div>
+									</DropdownMenuContent>
+								</DropdownMenu>
 							)}
-						</HStack>
-					</Box>
-					<Box
-						as="main"
-						flex="1"
-						p={{ base: 3, md: 4 }}
-						pb={{ base: "40", md: "4" }}
-						overflow="auto"
-						minH="0"
-						bg={shellMainBg}
-					>
+						</div>
+					</header>
+
+					<main className="min-h-0 flex-1 overflow-auto bg-panel-main p-3 pb-40 md:p-4 md:pb-4">
 						<Outlet />
-					</Box>
-				</Flex>
+					</main>
+				</div>
 
 				{/* mobile drawer */}
 				{isMobile && (
-					<Drawer
-						isOpen={sidebarDrawer.isOpen}
-						placement={isRTL ? "right" : "left"}
-						onClose={sidebarDrawer.onClose}
-						size="xs"
-					>
-						<DrawerOverlay />
-						<DrawerContent bg="panel.sidebar">
-							<DrawerBody p={0}>
+					<Sheet open={sidebarDrawer.isOpen} onOpenChange={(open) =>
+							open ? sidebarDrawer.onOpen() : sidebarDrawer.onClose()
+						}>
+						<SheetContent side={isRTL ? "right" : "left"} className="rb-sidebar-drawer w-[312px] max-w-[100vw] bg-panel-sidebar">
+							<SheetTitle className="sr-only">{t("a11y.toggleSidebar")}</SheetTitle>
+							<div className="h-full overflow-y-auto">
 								<AppSidebar
 									collapsed={false}
+									sponsors={sponsorSidebarLogoItems}
+									sidebarBanners={sponsorSidebarBanners}
 									inDrawer
 									onRequestExpand={sidebarDrawer.onClose}
 								/>
-							</DrawerBody>
-						</DrawerContent>
-					</Drawer>
+							</div>
+						</SheetContent>
+					</Sheet>
 				)}
+
 				{isMobile && (
 					<>
 						{showIosPrompt && (
-							<Box
-								position="fixed"
-								left="0"
-								right="0"
-								bottom={{ base: "86px", sm: "90px" }}
-								px="4"
-								zIndex={2000}
-							>
-								<Box
-									bg={menuBg}
-									borderRadius="20px"
-									borderWidth="1px"
-									borderColor={menuBorder}
-									px="4"
-									py="3"
-									display="flex"
-									alignItems="center"
-									gap="3"
-									boxShadow="lg"
-								>
-									<Box
-										w="8"
-										h="8"
-										borderRadius="full"
-										bg="whiteAlpha.600"
-										_dark={{ bg: "whiteAlpha.300" }}
-										display="flex"
-										alignItems="center"
-										justifyContent="center"
-									>
-										<ShareIcon />
-									</Box>
-									<Box flex="1">
-										<Text fontWeight="semibold" fontSize="sm">
-											{t("pwa.ios.title")}
-										</Text>
-										<Text
-											fontSize="xs"
-											color="gray.600"
-											_dark={{ color: "gray.300" }}
-										>
+							<div className="fixed inset-x-0 bottom-[86px] z-[2000] px-4 sm:bottom-[90px]">
+								<div className="flex items-center gap-3 rounded-[20px] border border-panel-border! bg-panel-surface px-4 py-3 shadow-lg">
+									<span className="flex size-8 items-center justify-center rounded-full bg-[rgba(255,255,255,0.48)] dark:bg-[rgba(255,255,255,0.16)]">
+										<ShareIcon className="size-4" />
+									</span>
+									<div className="flex-1">
+										<p className="text-sm font-semibold">{t("pwa.ios.title")}</p>
+										<p className="text-xs text-[#4A5568] dark:text-[#CBD5E0]">
 											{t("pwa.ios.body")}
-										</Text>
-									</Box>
-									<Button
-										size="sm"
-										variant="ghost"
-										onClick={() => {
+										</p>
+									</div>
+									<Button onClick={() => {
 											setShowIosPrompt(false);
 											localStorage.setItem("ios-pwa-tip-shown", "1");
-										}}
-									>
+										}} variant="ghost" size="xs" className="text-sm">
 										{t("pwa.ios.dismiss")}
 									</Button>
-								</Box>
-							</Box>
+								</div>
+							</div>
 						)}
-						<Box
-							position="fixed"
-							left="0"
-							right="0"
-							bottom="0"
-							zIndex={1500}
-							px="4"
-							pb="6px"
-							pt="1"
-						>
-							<Box
-								bg={menuBg}
-								borderColor={menuBorder}
-								boxShadow="xl"
-								borderWidth="1px"
-								borderRadius="26px"
-								px="3"
-								pt="2"
-								pb="calc(env(safe-area-inset-bottom) + 6px)"
-								maxW="min(520px, 100%)"
-								mx="auto"
-								position="relative"
-								overflow="hidden"
+
+						{/* Mobile bottom dock */}
+						<div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+							<div
+								className={cn(
+									"pointer-events-auto mx-auto max-w-[min(480px,100%)] rounded-[30px] border p-1.5",
+									DOCK_CLASS,
+								)}
 							>
-								<HStack
-									justify="space-between"
-									position="relative"
-									align="center"
-									spacing={1}
+								<div
+									className="relative flex items-center justify-between"
 									dir={isRTL ? "rtl" : "ltr"}
 									onPointerDown={handleNavPointerDown}
 									onPointerMove={handleNavPointerMove}
 									onPointerUp={handleNavPointerUp}
 									onPointerCancel={handleNavPointerCancel}
-									sx={{
-										touchAction: "pan-y",
-									}}
+									style={{ touchAction: "pan-y" }}
 								>
 									{bottomNavItems.map((item) => {
 										const isActive = resolveActive(item);
 										const isSelected = selectedTabKey === item.key;
-										const isSettingsItem = item.key === "settings";
 										const settingsLabel =
-											isSettingsItem && activeSettingsItem?.label
+											item.key === "settings" && activeSettingsItem?.label
 												? activeSettingsItem.label
 												: item.label;
-										const icon =
-											item.key === "dashboard" ? (
-												<HomeIcon />
-											) : item.key === "users" ? (
-												<UsersIcon />
-											) : item.key === "admins" ? (
-												<AdminsIcon />
-											) : item.key === "settings" ? (
-												<SettingsNavIcon />
-											) : (
-												<UserIcon />
-											);
+										const customIcon =
+											item.key === "settings" ? activeSettingsItem?.icon : undefined;
+										const [OutlineTabIcon, SolidTabIcon] = customIcon
+											? [customIcon, customIcon]
+											: (TAB_ICONS[item.key] ?? TAB_ICONS.myaccount);
+										const tabLabelClass = isSelected
+											? "text-[var(--primary-500)] dark:text-[var(--primary-300)]"
+											: "text-panel-text-secondary";
+										const tabButtonClass = cn(
+											"relative z-[1] h-auto min-h-12 min-w-0 flex-1 select-none rounded-md px-0 hover:bg-transparent focus:bg-transparent active:bg-transparent",
+											isActive
+												? "text-[var(--primary-500)] dark:text-[var(--primary-300)]"
+												: "text-[#4A5568] dark:text-[#CBD5E0]",
+										);
 										const navContent = (
-											<Box
-												w="full"
-												display="flex"
-												justifyContent="center"
-												minW="0"
+											<motion.div
+												whileTap={reduceMotion ? undefined : { scale: 0.88 }}
+												transition={tapSpring}
+												className="w-full"
 											>
-												<Box
-													position="relative"
-													display="inline-flex"
-													flexDirection="column"
-													alignItems="center"
-													justifyContent="center"
-													px="3"
-													py="1.5"
-													maxW="100%"
-													w="fit-content"
-												>
-													{isSelected && (
-														<motion.div
-															layoutId="mobile-bottom-nav-active-pill"
-															transition={{
-																type: "spring",
-																stiffness: 520,
-																damping: 38,
-																mass: 0.7,
-															}}
-															style={{
-																position: "absolute",
-																inset: 0,
-																borderRadius: 999,
-																background: activePillBg,
-																boxShadow: activePillShadow,
-																zIndex: 0,
-																pointerEvents: "none",
-															}}
-														/>
-													)}
-													<Box
-														position="relative"
-														zIndex={1}
-														w="8"
-														h="8"
-														display="grid"
-														placeItems="center"
-													>
-														<motion.div
-															animate={{
-																y: isSelected ? -2 : 0,
-																scale: isSelected ? 1.06 : 1,
-															}}
-															transition={{
-																type: "spring",
-																stiffness: 500,
-																damping: 32,
-															}}
-															style={{ position: "relative", zIndex: 1 }}
+												<div className="flex w-full flex-col items-center gap-1 py-1">
+													<div className="relative grid h-8 w-14 place-items-center">
+														{isSelected && (
+															<motion.span
+																layoutId="mobile-bottom-nav-indicator"
+																transition={navSpring}
+																className="absolute inset-0 rounded-2xl bg-[color-mix(in_srgb,var(--primary-500)_12%,transparent)] dark:bg-[color-mix(in_srgb,var(--primary-300)_20%,transparent)]"
+															/>
+														)}
+														<div
+															className={cn(
+																"relative grid place-items-center",
+																tabLabelClass,
+															)}
 														>
-															{icon}
-														</motion.div>
-													</Box>
-													<Text
-														position="relative"
-														zIndex={1}
-														fontSize="10px"
-														lineHeight="1.1"
-														fontWeight="semibold"
-														textAlign="center"
-														noOfLines={2}
-														maxW="100%"
-														overflowWrap="anywhere"
-														px="1"
+															<motion.span
+																initial={false}
+																animate={{
+																	opacity: isSelected ? 0 : 1,
+																	scale: isSelected ? 0.8 : 1,
+																}}
+																transition={navSpring}
+																className="grid place-items-center [grid-area:1/1]"
+															>
+																<OutlineTabIcon className="size-[22px]" />
+															</motion.span>
+															<motion.span
+																initial={false}
+																animate={{
+																	opacity: isSelected ? 1 : 0,
+																	scale: isSelected ? 1 : 0.8,
+																}}
+																transition={navSpring}
+																className="grid place-items-center [grid-area:1/1]"
+															>
+																<SolidTabIcon className="size-[22px]" />
+															</motion.span>
+														</div>
+													</div>
+													<span
+														className={cn(
+															"max-w-full truncate px-1 text-center text-[10px] leading-[1.1] transition-colors duration-[250ms]",
+															tabLabelClass,
+															isSelected ? "font-semibold" : "font-medium",
+														)}
 													>
 														{settingsLabel}
-													</Text>
-												</Box>
-											</Box>
+													</span>
+												</div>
+											</motion.div>
 										);
 
 										if (item.key === "settings") {
 											return (
-												<Popover
-													key={item.key}
-													isOpen={settingsMenu.isOpen}
-													onClose={handleSettingsMenuClose}
-													placement="top"
-													gutter={12}
-													closeOnBlur
-													modifiers={popoverModifiers}
-													strategy="fixed"
-												>
-													<PopoverTrigger>
-														<Button
-															variant="ghost"
-															size="sm"
-															ref={(node) => {
+												<Popover key={item.key} open={settingsMenu.isOpen} onOpenChange={(open) => {
+														if (open) openSettingsMenu();
+														else handleSettingsMenuClose();
+													}}>
+													<PopoverTrigger asChild>
+														<Button ref={(node) => {
 																tabContentRefs.current[item.key] = node;
-															}}
-															onClick={() => {
+															}} onClick={(event) => {
+																// The click only toggles through handleSettingsMenuToggle, so
+																// stop the trigger from toggling on its own.
+																event.preventDefault();
 																if (settingsHoldOpened.current) return;
 																handleSettingsMenuToggle();
-															}}
-															onPointerDown={(event) => {
+															}} onPointerDown={(event) => {
 																if (event.pointerType === "mouse") return;
 																settingsHoldStartPoint.current = {
 																	x: event.clientX,
 																	y: event.clientY,
 																};
 																handleSettingsHoldStart();
-															}}
-															onPointerMove={(event) => {
+															}} onPointerMove={(event) => {
 																if (event.pointerType === "mouse") return;
-																handleSettingsHoldMove(
-																	event.clientX,
-																	event.clientY,
-																);
-															}}
-															onPointerUp={handleSettingsHoldEnd}
-															onPointerCancel={handleSettingsHoldEnd}
-															onPointerLeave={handleSettingsHoldEnd}
-															onContextMenu={(event) => {
+																handleSettingsHoldMove(event.clientX, event.clientY);
+															}} onPointerUp={handleSettingsHoldEnd} onPointerCancel={handleSettingsHoldEnd} onPointerLeave={handleSettingsHoldEnd} onContextMenu={(event) => {
 																if (isMobile) event.preventDefault();
-															}}
-															color={isActive ? "primary.500" : "gray.600"}
-															_dark={{
-																color: isActive ? "primary.300" : "gray.300",
-															}}
-															flex="1"
-															minW="0"
-															minH="48px"
-															h="auto"
-															px="0"
-															position="relative"
-															zIndex={1}
-															sx={{ touchAction: "manipulation" }}
-															userSelect="none"
-															_hover={{ bg: "transparent" }}
-															_active={{ bg: "transparent" }}
-															_focus={{ bg: "transparent" }}
-														>
+															}} variant="ghost" size="sm" className={tabButtonClass}>
 															{navContent}
 														</Button>
 													</PopoverTrigger>
-													<Portal>
-														<PopoverContent
-															w="min(210px, calc(100vw - 24px))"
-															maxW="calc(100vw - 24px)"
-															maxH="calc(100vh - 160px)"
-															overflowY="auto"
-															borderRadius="18px"
-															bg={menuBg}
-															borderColor={menuBorder}
-															borderWidth="1px"
-															boxShadow="xl"
-														>
-															<PopoverBody position="relative" zIndex={1} p="2">
-																<VStack align="stretch" spacing={1}>
-																	{settingsMenuItems.map((entry) => {
-																		const ItemIcon = entry.icon;
-																		const isSelected =
-																			activeSettingsKey === entry.key;
-																		return (
-																			<Button
-																				key={entry.key}
-																				variant="ghost"
-																				size="sm"
-																				w="full"
-																				justifyContent="flex-start"
-																				leftIcon={
-																					ItemIcon ? <ItemIcon /> : undefined
-																				}
-																				bg={
-																					isSelected ? menuHover : "transparent"
-																				}
-																				fontWeight={
-																					isSelected ? "semibold" : "normal"
-																				}
-																				aria-current={
-																					isSelected ? "page" : undefined
-																				}
-																				_hover={{
-																					bg:
-																						isSelected || activeSettingsKey
-																							? menuHover
-																							: "transparent",
-																				}}
-																				_active={{ bg: menuHover }}
-																				_focusVisible={{ boxShadow: "outline" }}
-																				onClick={() => {
-																					handleSettingsMenuClose();
-																					navigateToSettingsItem(entry.to);
-																				}}
-																			>
-																				{entry.label}
-																			</Button>
-																		);
-																	})}
-																</VStack>
-															</PopoverBody>
-														</PopoverContent>
-													</Portal>
+													<PopoverContent side="top" align="center" sideOffset={12} collisionPadding={12} className={cn(
+															"w-[min(210px,calc(100vw_-_24px))] max-w-[calc(100vw_-_24px)] max-h-[calc(100vh_-_160px)] overflow-y-auto rounded-[22px] p-2",
+															DOCK_CLASS,
+														)}>
+														<div className="flex flex-col gap-1">
+															{settingsMenuItems.map((entry) => {
+																const ItemIcon = entry.icon;
+																const isSelected = activeSettingsKey === entry.key;
+																return (
+																	<Button key={entry.key} aria-current={isSelected ? "page" : undefined} onClick={() => {
+																			handleSettingsMenuClose();
+																			navigateToSettingsItem(entry.to);
+																		}} variant="ghost" size="xs" className={cn(
+																			"w-full justify-start text-sm",
+																			isSelected
+																				? "bg-panel-elevated font-semibold"
+																				: "bg-transparent font-normal",
+																			isSelected || activeSettingsKey
+																				? "hover:bg-panel-elevated"
+																				: "hover:bg-transparent",
+																			"active:bg-panel-elevated focus-visible:shadow-[0_0_0_2px_var(--primary-200)]",
+																		)}>
+																		{ItemIcon ? <ItemIcon className="size-4" /> : null}
+																		{entry.label}
+																	</Button>
+																);
+															})}
+														</div>
+													</PopoverContent>
 												</Popover>
 											);
 										}
 
 										if (item.key === "myaccount") {
 											return (
-												<Popover
-													key={item.key}
-													isOpen={accountMenu.isOpen}
-													onClose={handleAccountMenuClose}
-													autoFocus={false}
-													placement="top"
-													gutter={12}
-													closeOnBlur
-													modifiers={popoverModifiers}
-													strategy="fixed"
-												>
-													<PopoverTrigger>
-														<Button
-															variant="ghost"
-															size="sm"
-															ref={(node) => {
+												<Popover key={item.key} open={accountMenu.isOpen} onOpenChange={(open) => {
+														if (!open) handleAccountMenuClose();
+													}}>
+													<PopoverTrigger asChild>
+														<Button ref={(node) => {
 																tabContentRefs.current[item.key] = node;
-															}}
-															onClick={() => {
+															}} onClick={(event) => {
+																// Same as the settings tab: the click is handled below only.
+																event.preventDefault();
 																if (accountHoldOpened.current) return;
 																handleAccountMenuClose();
 																handleNavClick(item.to);
-															}}
-															onPointerDown={(event) => {
+															}} onPointerDown={(event) => {
 																if (event.pointerType === "mouse") return;
 																accountHoldStartPoint.current = {
 																	x: event.clientX,
 																	y: event.clientY,
 																};
 																handleAccountHoldStart();
-															}}
-															onPointerMove={(event) => {
+															}} onPointerMove={(event) => {
 																if (event.pointerType === "mouse") return;
-																handleAccountHoldMove(
-																	event.clientX,
-																	event.clientY,
-																);
-															}}
-															onPointerUp={handleAccountHoldEnd}
-															onPointerCancel={handleAccountHoldEnd}
-															onPointerLeave={handleAccountHoldEnd}
-															onContextMenu={(event) => {
+																handleAccountHoldMove(event.clientX, event.clientY);
+															}} onPointerUp={handleAccountHoldEnd} onPointerCancel={handleAccountHoldEnd} onPointerLeave={handleAccountHoldEnd} onContextMenu={(event) => {
 																if (isMobile) event.preventDefault();
-															}}
-															color={isActive ? "primary.500" : "gray.600"}
-															_dark={{
-																color: isActive ? "primary.300" : "gray.300",
-															}}
-															flex="1"
-															minW="0"
-															minH="48px"
-															h="auto"
-															px="0"
-															position="relative"
-															zIndex={1}
-															sx={{ touchAction: "manipulation" }}
-															userSelect="none"
-															_hover={{ bg: "transparent" }}
-															_active={{ bg: "transparent" }}
-															_focus={{ bg: "transparent" }}
-														>
+															}} variant="ghost" size="sm" className={tabButtonClass}>
 															{navContent}
 														</Button>
 													</PopoverTrigger>
-													<Portal>
-														<PopoverContent
-															w="min(180px, calc(100vw - 24px))"
-															maxW="calc(100vw - 24px)"
-															maxH="calc(100vh - 160px)"
-															overflowY="auto"
-															borderRadius="18px"
-															bg={menuBg}
-															borderColor={menuBorder}
-															borderWidth="1px"
-															boxShadow="xl"
-														>
-															<PopoverBody position="relative" zIndex={1} p="2">
-																<Button
-																	variant="ghost"
-																	size="sm"
-																	w="full"
-																	justifyContent="flex-start"
-																	leftIcon={<LogoutIcon />}
-																	color="red.500"
-																	_hover={{ bg: menuHover }}
-																	_active={{ bg: menuHover }}
-																	_focus={{ bg: "transparent" }}
-																	_focusVisible={{ bg: menuHover }}
-																	onClick={async () => {
-																		try {
-																			await logoutSession();
-																		} finally {
-																			clearClientSession();
-																			handleAccountMenuClose();
-																			navigate("/login");
-																		}
-																	}}
-																>
-																	{t("header.logout")}
-																</Button>
-															</PopoverBody>
-														</PopoverContent>
-													</Portal>
+													<PopoverContent side="top" align="center" sideOffset={12} collisionPadding={12} onOpenAutoFocus={(event) => event.preventDefault()} className={cn(
+															"w-[min(180px,calc(100vw_-_24px))] max-w-[calc(100vw_-_24px)] max-h-[calc(100vh_-_160px)] overflow-y-auto rounded-[22px] p-2",
+															DOCK_CLASS,
+														)}>
+														<Button onClick={async () => {
+																try {
+																	await logoutSession();
+																} finally {
+																	clearClientSession();
+																	handleAccountMenuClose();
+																	navigate("/login");
+																}
+															}} variant="ghost" size="xs" className="w-full justify-start text-sm text-[#E53E3E] hover:bg-panel-elevated focus-visible:bg-panel-elevated active:bg-panel-elevated">
+															<LogoutIcon className="size-4" />
+															{t("header.logout")}
+														</Button>
+													</PopoverContent>
 												</Popover>
 											);
 										}
 
 										return (
-											<Button
-												key={item.key}
-												variant="ghost"
-												size="sm"
-												ref={(node) => {
+											<Button key={item.key} ref={(node) => {
 													tabContentRefs.current[item.key] = node;
-												}}
-												onClick={() => {
+												}} onClick={() => {
 													if (item.to) {
 														handleNavClick(item.to);
 													}
-												}}
-												color={isActive ? "primary.500" : "gray.600"}
-												_dark={{ color: isActive ? "primary.300" : "gray.300" }}
-												flex="1"
-												minW="0"
-												minH="48px"
-												h="auto"
-												px="0"
-												position="relative"
-												zIndex={1}
-												userSelect="none"
-												_hover={{ bg: "transparent" }}
-												_active={{ bg: "transparent" }}
-												_focus={{ bg: "transparent" }}
-											>
+												}} variant="ghost" size="sm" className={tabButtonClass}>
 												{navContent}
 											</Button>
 										);
 									})}
-								</HStack>
-							</Box>
-						</Box>
+								</div>
+							</div>
+						</div>
 					</>
 				)}
-			</Flex>
+			</div>
 		</>
 	);
 }

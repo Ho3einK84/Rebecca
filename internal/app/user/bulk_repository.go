@@ -604,7 +604,7 @@ func (r Repository) ensureBulkActivateCapacityTx(ctx context.Context, tx *sql.Tx
 			var serviceTrafficMode string
 			var serviceDataLimit sql.NullInt64
 			var serviceUsedTraffic int64
-			err := tx.QueryRowContext(ctx, `SELECT users_limit, COALESCE(traffic_limit_mode, 'used_traffic'), data_limit, COALESCE(used_traffic, 0) FROM admins_services WHERE admin_id = ? AND service_id = ?`, item.adminID, item.serviceID.Int64).Scan(&serviceUsersLimit, &serviceTrafficMode, &serviceDataLimit, &serviceUsedTraffic)
+			err := tx.QueryRowContext(ctx, `SELECT users_limit, COALESCE(traffic_limit_mode, 'used_traffic'), data_limit, COALESCE(used_traffic, 0) FROM service_admins WHERE admin_id = ? AND service_id = ?`, item.adminID, item.serviceID.Int64).Scan(&serviceUsersLimit, &serviceTrafficMode, &serviceDataLimit, &serviceUsedTraffic)
 			if err == sql.ErrNoRows {
 				return clientError(403, "Service not assigned to admin")
 			}
@@ -677,7 +677,7 @@ func (r Repository) bulkFilter(targetAdmin *adminapp.Admin, payload BulkUsersAct
 	}
 	now := time.Now().UTC()
 	if payload.LastOnlineDays != nil {
-		filter.where = append(filter.where, "COALESCE((SELECT up.online_at FROM user_presence up WHERE up.user_id = users.id), online_at) IS NOT NULL", "COALESCE((SELECT up.online_at FROM user_presence up WHERE up.user_id = users.id), online_at) <= ?")
+		filter.where = append(filter.where, "(SELECT up.online_at FROM user_presence up WHERE up.user_id = users.id) IS NOT NULL", "(SELECT up.online_at FROM user_presence up WHERE up.user_id = users.id) <= ?")
 		filter.args = append(filter.args, dbTime(now.Add(-time.Duration(*payload.LastOnlineDays)*24*time.Hour)))
 	}
 	if payload.StatusAgeDays != nil {
@@ -785,9 +785,9 @@ func (r Repository) bulkCreatedTrafficMultiplierIncrementsTx(ctx context.Context
 	filter.addStatuses("status", bulkStatusScope(payload.Scope, []UserStatus{UserStatusActive}))
 	whereSQL, args := filter.sql()
 
-	query := "SELECT admin_id, service_id, SUM(CAST(ROUND(data_limit * ?) AS INTEGER) - data_limit) FROM users WHERE " + whereSQL + " AND admin_id IS NOT NULL GROUP BY admin_id, service_id"
+	query := "SELECT admin_id, service_id, SUM(CAST(ROUND(data_limit * ?) AS SIGNED) - data_limit) FROM users WHERE " + whereSQL + " AND admin_id IS NOT NULL GROUP BY admin_id, service_id"
 	queryArgs := append([]any{factor}, args...)
-	
+
 	rows, err := tx.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
 		return nil, err
@@ -821,7 +821,7 @@ func (r Repository) ensureBulkCreatedTrafficLimitsTx(ctx context.Context, tx *sq
 			return err
 		}
 		if useService != 0 && inc.serviceID != nil {
-			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(traffic_limit_mode, 'used_traffic'), data_limit, COALESCE(created_traffic, 0) FROM admins_services WHERE admin_id = ? AND service_id = ?`, inc.adminID, *inc.serviceID).Scan(&mode, &dataLimit, &createdTraffic); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(traffic_limit_mode, 'used_traffic'), data_limit, COALESCE(created_traffic, 0) FROM service_admins WHERE admin_id = ? AND service_id = ?`, inc.adminID, *inc.serviceID).Scan(&mode, &dataLimit, &createdTraffic); err != nil {
 				if err == sql.ErrNoRows {
 					continue
 				}
@@ -845,7 +845,7 @@ func (r Repository) recordBulkCreatedTrafficTx(ctx context.Context, tx *sql.Tx, 
 			return err
 		}
 		if useService != 0 && inc.serviceID != nil {
-			if _, err := tx.ExecContext(ctx, `UPDATE admins_services SET created_traffic = COALESCE(created_traffic, 0) + ?, updated_at = ? WHERE admin_id = ? AND service_id = ?`, inc.amount, dbTime(now), inc.adminID, *inc.serviceID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE service_admins SET created_traffic = COALESCE(created_traffic, 0) + ?, updated_at = ? WHERE admin_id = ? AND service_id = ?`, inc.amount, dbTime(now), inc.adminID, *inc.serviceID); err != nil {
 				return err
 			}
 		} else {
@@ -893,8 +893,8 @@ func (r Repository) multiplyBulkExpireTx(ctx context.Context, tx *sql.Tx, target
 		filter.args = append(filter.args, nowUnix)
 		whereSQL, args := filter.sql()
 
-		newExpire := "CAST(ROUND(? + (expire - ?) * ?) AS INTEGER)"
-		
+		newExpire := "CAST(ROUND(? + (expire - ?) * ?) AS SIGNED)"
+
 		statusCase := "CASE WHEN status = ? THEN ? WHEN status = ? THEN ? WHEN " + newExpire + " <= ? THEN ? WHEN status = ? THEN ? ELSE status END"
 		statusArgs := []any{
 			string(UserStatusDisabled), string(UserStatusDisabled),
@@ -903,12 +903,12 @@ func (r Repository) multiplyBulkExpireTx(ctx context.Context, tx *sql.Tx, target
 			string(UserStatusExpired), string(UserStatusActive),
 		}
 
-		query := "UPDATE users SET expire = " + newExpire + ", status = " + statusCase + ", last_status_change = CASE WHEN status != " + statusCase + " THEN ? ELSE last_status_change END WHERE " + whereSQL
-		
-		allArgs := []any{nowUnix, nowUnix, factor}
-		allArgs = append(allArgs, statusArgs...)
-		allArgs = append(allArgs, statusArgs...)
+		query := "UPDATE users SET last_status_change = CASE WHEN status != " + statusCase + " THEN ? ELSE last_status_change END, status = " + statusCase + ", expire = " + newExpire + " WHERE " + whereSQL
+
+		allArgs := append([]any{}, statusArgs...)
 		allArgs = append(allArgs, dbTime(now))
+		allArgs = append(allArgs, statusArgs...)
+		allArgs = append(allArgs, nowUnix, nowUnix, factor)
 		allArgs = append(allArgs, args...)
 
 		res, err := tx.ExecContext(ctx, query, allArgs...)
@@ -923,9 +923,9 @@ func (r Repository) multiplyBulkExpireTx(ctx context.Context, tx *sql.Tx, target
 		filter.args = append(filter.args, string(UserStatusOnHold))
 		whereSQL, args := filter.sql()
 
-		newDuration := "CAST(ROUND(on_hold_expire_duration * ?) AS INTEGER)"
+		newDuration := "CAST(ROUND(on_hold_expire_duration * ?) AS SIGNED)"
 		query := "UPDATE users SET on_hold_expire_duration = CASE WHEN " + newDuration + " < 0 THEN 0 ELSE " + newDuration + " END WHERE " + whereSQL
-		
+
 		allArgs := []any{factor, factor}
 		allArgs = append(allArgs, args...)
 
@@ -960,7 +960,7 @@ func (r Repository) multiplyBulkLimitTx(ctx context.Context, tx *sql.Tx, targetA
 	now := time.Now().UTC()
 	whereSQL, args := filter.sql()
 
-	newLimit := "CAST(ROUND(data_limit * ?) AS INTEGER)"
+	newLimit := "CAST(ROUND(data_limit * ?) AS SIGNED)"
 	statusCase := "CASE WHEN status = ? THEN ? WHEN status = ? THEN ? WHEN status = ? THEN ? WHEN " + newLimit + " > 0 AND COALESCE(used_traffic, 0) >= " + newLimit + " THEN ? ELSE ? END"
 	statusArgs := []any{
 		string(UserStatusDisabled), string(UserStatusDisabled),
@@ -970,12 +970,12 @@ func (r Repository) multiplyBulkLimitTx(ctx context.Context, tx *sql.Tx, targetA
 		string(UserStatusLimited), string(UserStatusActive),
 	}
 
-	query := "UPDATE users SET data_limit = CASE WHEN " + newLimit + " < 0 THEN 0 ELSE " + newLimit + " END, status = " + statusCase + ", last_status_change = CASE WHEN status != " + statusCase + " THEN ? ELSE last_status_change END WHERE " + whereSQL
+	query := "UPDATE users SET last_status_change = CASE WHEN status != " + statusCase + " THEN ? ELSE last_status_change END, status = " + statusCase + ", data_limit = CASE WHEN " + newLimit + " < 0 THEN 0 ELSE " + newLimit + " END WHERE " + whereSQL
 
-	allArgs := []any{factor, factor}
-	allArgs = append(allArgs, statusArgs...)
-	allArgs = append(allArgs, statusArgs...)
+	allArgs := append([]any{}, statusArgs...)
 	allArgs = append(allArgs, dbTime(now))
+	allArgs = append(allArgs, statusArgs...)
+	allArgs = append(allArgs, factor, factor)
 	allArgs = append(allArgs, args...)
 
 	res, err := tx.ExecContext(ctx, query, allArgs...)

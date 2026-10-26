@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	adminapp "github.com/rebeccapanel/rebecca/internal/app/admin"
+	"github.com/rebeccapanel/rebecca/internal/app/jsonvalue"
 )
 
 func rollbackQuiet(tx *sql.Tx) {
@@ -339,7 +340,9 @@ func (r Repository) existingUserTx(ctx context.Context, tx *sql.Tx, username str
 	err := tx.QueryRowContext(
 		ctx,
 		`SELECT id, username, status, COALESCE(used_traffic, 0), data_limit, expire, service_id, admin_id, credential_key, on_hold_expire_duration,
-COALESCE((SELECT up.online_at FROM user_presence up WHERE up.user_id = users.id), online_at)
+(SELECT up.online_at FROM user_presence up WHERE up.user_id = users.id),
+COALESCE(speed_limit_kbps, 0),
+COALESCE(ip_limit, 0)
 FROM users WHERE LOWER(username) = LOWER(?) AND status != ? LIMIT 1`,
 		username,
 		string(UserStatusDeleted),
@@ -355,6 +358,8 @@ FROM users WHERE LOWER(username) = LOWER(?) AND status != ? LIMIT 1`,
 		&credentialKey,
 		&holdDuration,
 		&onlineAt,
+		&row.SpeedLimitKbps,
+		&row.IPLimit,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -380,7 +385,7 @@ FROM users WHERE LOWER(username) = LOWER(?) AND status != ? LIMIT 1`,
 }
 
 func (r Repository) proxiesByUserTx(ctx context.Context, tx *sql.Tx, userID int64) (ProxyPayload, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT type, settings FROM proxies WHERE user_id = ? ORDER BY id`, userID)
+	rows, err := tx.QueryContext(ctx, `SELECT type, settings FROM user_credentials WHERE user_id = ? ORDER BY id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -403,6 +408,11 @@ func (r Repository) mutationContextTx(ctx context.Context, tx *sql.Tx, admin adm
 		Services:           map[int64]ServiceInfo{},
 		Inbounds:           map[string]InboundInfo{},
 	}
+	speedEnabled, err := r.userSpeedLimitEnabledTx(ctx, tx)
+	if err != nil {
+		return ctxData, err
+	}
+	ctxData.UserSpeedLimitEnabled = speedEnabled
 	activeArgs := []any{admin.ID, string(UserStatusActive), string(UserStatusOnHold)}
 	activeSQL := `SELECT COUNT(*) FROM users WHERE admin_id = ? AND status IN (?, ?)`
 	if excludeUserID != nil {
@@ -487,7 +497,7 @@ LEFT JOIN service_hosts sh ON sh.host_id = h.id`)
 		}
 		serviceRows.Close()
 	}
-	adminRows, err := tx.QueryContext(ctx, `SELECT service_id, admin_id FROM admins_services`)
+	adminRows, err := tx.QueryContext(ctx, `SELECT service_id, admin_id FROM service_admins`)
 	if err == nil {
 		for adminRows.Next() {
 			var serviceID, adminID int64
@@ -532,8 +542,8 @@ func (r Repository) resolvedInboundsByTagTx(ctx context.Context, tx *sql.Tx) (ma
 	for _, raw := range rawConfigs {
 		inbounds := listOfMaps(raw["inbounds"])
 		for _, inbound := range inbounds {
-			tag := stringValue(inbound["tag"])
-			protocol := stringValue(inbound["protocol"])
+			tag := jsonvalue.String(inbound["tag"])
+			protocol := jsonvalue.String(inbound["protocol"])
 			if tag == "" || protocol == "" {
 				continue
 			}
@@ -586,7 +596,7 @@ func (r Repository) rawXrayConfigsTx(ctx context.Context, tx *sql.Tx) ([]map[str
 }
 
 func (r Repository) replaceProxiesTx(ctx context.Context, tx *sql.Tx, userID int64, proxies ProxyPayload, inbounds map[string][]string, serviceID *int64, catalog MutationContext) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM proxies WHERE user_id = ?`, userID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_credentials WHERE user_id = ?`, userID); err != nil {
 		return err
 	}
 	protocols := make([]string, 0, len(proxies))
@@ -599,7 +609,7 @@ func (r Repository) replaceProxiesTx(ctx context.Context, tx *sql.Tx, userID int
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO proxies (user_id, type, settings) VALUES (?, ?, ?)`, userID, protocol, string(settingsJSON)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO user_credentials (user_id, type, settings) VALUES (?, ?, ?)`, userID, protocol, string(settingsJSON)); err != nil {
 			return err
 		}
 	}
@@ -607,7 +617,7 @@ func (r Repository) replaceProxiesTx(ctx context.Context, tx *sql.Tx, userID int
 }
 
 func (r Repository) deleteProxiesTx(ctx context.Context, tx *sql.Tx, userID int64) error {
-	_, err := tx.ExecContext(ctx, `DELETE FROM proxies WHERE user_id = ?`, userID)
+	_, err := tx.ExecContext(ctx, `DELETE FROM user_credentials WHERE user_id = ?`, userID)
 	return err
 }
 
@@ -622,7 +632,7 @@ func (r Repository) insertProxiesForNewUserTx(ctx context.Context, tx *sql.Tx, u
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO proxies (user_id, type, settings) VALUES (?, ?, ?)`, userID, protocol, string(settingsJSON)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO user_credentials (user_id, type, settings) VALUES (?, ?, ?)`, userID, protocol, string(settingsJSON)); err != nil {
 			return err
 		}
 	}
@@ -635,7 +645,7 @@ func (r Repository) replaceProxySettingsOnlyTx(ctx context.Context, tx *sql.Tx, 
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE proxies SET settings = ? WHERE user_id = ? AND type = ?`, string(settingsJSON), userID, normalizeProtocol(protocol)); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE user_credentials SET settings = ? WHERE user_id = ? AND type = ?`, string(settingsJSON), userID, normalizeProtocol(protocol)); err != nil {
 			return err
 		}
 	}
@@ -900,7 +910,7 @@ func (r Repository) activeNodeIDsTx(ctx context.Context, tx *sql.Tx) ([]int64, e
 	if cached, ok := r.cachedActiveNodeIDs(); ok {
 		return cached, nil
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM nodes WHERE LOWER(COALESCE(status, '')) = 'connected' ORDER BY id`)
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM nodes WHERE LOWER(COALESCE(status, '')) NOT IN ('disabled', 'limited', 'deleted') ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -987,7 +997,7 @@ func (r Repository) recordCreatedTrafficTx(ctx context.Context, tx *sql.Tx, admi
 		return nil
 	}
 	if admin.UseServiceTrafficLimits && serviceID != nil {
-		if _, err := tx.ExecContext(ctx, `UPDATE admins_services SET created_traffic = COALESCE(created_traffic, 0) + ?, updated_at = ? WHERE admin_id = ? AND service_id = ?`, delta, dbTime(now), admin.ID, *serviceID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE service_admins SET created_traffic = COALESCE(created_traffic, 0) + ?, updated_at = ? WHERE admin_id = ? AND service_id = ?`, delta, dbTime(now), admin.ID, *serviceID); err != nil {
 			return err
 		}
 	} else {
@@ -1015,7 +1025,7 @@ func (r Repository) recordDeletedUserUsageCreditTx(ctx context.Context, tx *sql.
 	amount := user.UsedTraffic
 	if admin.UseServiceTrafficLimits && user.ServiceID != nil {
 		if _, err := tx.ExecContext(ctx, `
-UPDATE admins_services
+UPDATE service_admins
 SET deleted_users_usage = COALESCE(deleted_users_usage, 0) + ?,
 	created_traffic = CASE
 		WHEN COALESCE(created_traffic, 0) - ? < 0 THEN 0
@@ -1054,4 +1064,16 @@ WHERE id = ?`,
 
 	_, err := tx.ExecContext(ctx, `INSERT INTO admin_created_traffic_logs (admin_id, service_id, amount, action, created_at) VALUES (?, ?, ?, ?, ?)`, admin.ID, nullableInt64Ptr(user.ServiceID), -amount, "user_delete_credit", dbTime(now))
 	return err
+}
+
+func (r Repository) userSpeedLimitEnabledTx(ctx context.Context, tx *sql.Tx) (bool, error) {
+	var enabled int64
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(user_speed_limit_enabled, 1) FROM settings WHERE id = 1 LIMIT 1`).Scan(&enabled)
+	if err != nil {
+		if stderrors.Is(err, sql.ErrNoRows) || strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return true, nil
+		}
+		return false, err
+	}
+	return enabled != 0, nil
 }

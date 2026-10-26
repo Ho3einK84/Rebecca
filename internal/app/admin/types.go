@@ -53,6 +53,19 @@ var (
 	ErrSessionRestricted  = errors.New("admin session requires additional authentication")
 )
 
+func IsAuthRejection(err error) bool {
+	for _, rejection := range []error{
+		ErrInvalidToken, ErrAdminNotFound, ErrAdminDeleted, ErrAdminDisabled, ErrAdminNotActive,
+		ErrAdminExpired, ErrAdminDataExhausted, ErrPasswordResetAfter, ErrPermissionDenied,
+		ErrSessionExpired, ErrSessionRestricted,
+	} {
+		if errors.Is(err, rejection) {
+			return true
+		}
+	}
+	return false
+}
+
 type UserPermissionSettings struct {
 	Create               bool   `json:"create"`
 	Delete               bool   `json:"delete"`
@@ -67,6 +80,11 @@ type UserPermissionSettings struct {
 	SetFlow              bool   `json:"set_flow"`
 	AllowCustomKey       bool   `json:"allow_custom_key"`
 	MaxDataLimitPerUser  *int64 `json:"max_data_limit_per_user"`
+	MinDataLimitPerUser  *int64 `json:"min_data_limit_per_user"`
+	ManageSpeedLimit     bool   `json:"manage_speed_limit"`
+	MaxSpeedLimitPerUser *int64 `json:"max_speed_limit_per_user"`
+	ManageIPLimit        bool   `json:"manage_ip_limit"`
+	MaxIPLimitPerUser    *int64 `json:"max_ip_limit_per_user"`
 }
 
 type AdminManagementPermissions struct {
@@ -85,6 +103,7 @@ type SudoPermissionSettings struct {
 	Backups       bool `json:"backups"`
 	Maintenance   bool `json:"maintenance"`
 	PHPMyAdmin    bool `json:"phpmyadmin"`
+	Notes         bool `json:"notes"`
 }
 
 type SectionPermissionSettings struct {

@@ -1,4 +1,4 @@
-import { $fetch, apiBaseURL, fetch as apiFetch } from "./http";
+import { $fetch, apiBaseURL, fetch as apiFetch, reportAPIError, useAPIRequestErrors } from "./http";
 
 export interface TelegramTopicSettingsPayload {
 	title: string;
@@ -218,6 +218,7 @@ export interface SubscriptionCertificate {
 	fingerprint_sha256: string | null;
 	auto_renew: boolean;
 	serve_tls: boolean;
+	node_id?: number | null;
 }
 
 export interface SubscriptionSettingsBundle {
@@ -270,6 +271,12 @@ export interface CertificateIssuePayload {
 	provider: "letsencrypt" | "zerossl";
 }
 
+export interface NodeCertificateIssuePayload {
+	node_id: number;
+	domain: string;
+	email: string;
+}
+
 export interface CertificateRenewPayload {
 	domain: string;
 }
@@ -287,6 +294,7 @@ export interface RuntimeSettingsResponse {
 	record_node_user_usages: boolean;
 	subscription_read_only: boolean;
 	api_docs_enabled: boolean;
+	user_speed_limit_enabled: boolean;
 	phpmyadmin_enabled: boolean;
 	phpmyadmin_port: number;
 	phpmyadmin_path: string;
@@ -384,7 +392,7 @@ export const disablePHPMyAdmin =
 
 export interface ExternalAppRecord {
 	id: string;
-	template: "archive" | "mirzabot";
+	template: "archive" | "mirzabot" | "faoxima";
 	name: string;
 	domain: string;
 	path?: string;
@@ -407,7 +415,7 @@ export interface ExternalAppRecord {
 }
 
 export interface ExternalAppTemplate {
-	id: "archive" | "mirzabot";
+	id: "archive" | "mirzabot" | "faoxima";
 	name: string;
 	supported: boolean;
 	detail?: string;
@@ -455,12 +463,17 @@ export const installExternalArchive = async (payload: {
 	});
 };
 
-export const installMirzaBot = async (payload: {
+type BotAppInstallPayload = {
 	domain: string;
 	bot_token: string;
 	admin_id: string;
 	database_backup?: File;
-}): Promise<ExternalAppRecord> => {
+};
+
+const installBotApp = async (
+	app: "mirzabot" | "faoxima",
+	payload: BotAppInstallPayload,
+): Promise<ExternalAppRecord> => {
 	const body = new FormData();
 	body.set("domain", payload.domain);
 	body.set("bot_token", payload.bot_token);
@@ -468,12 +481,16 @@ export const installMirzaBot = async (payload: {
 	if (payload.database_backup) {
 		body.set("database_backup", payload.database_backup);
 	}
-	return $fetch("/settings/external-apps/mirzabot", {
+	return $fetch(`/settings/external-apps/${app}`, {
 		method: "POST",
 		body,
 		timeout: 20 * 60 * 1000,
 	});
 };
+
+export const installMirzaBot = (payload: BotAppInstallPayload) => installBotApp("mirzabot", payload);
+
+export const installFaoxima = (payload: BotAppInstallPayload) => installBotApp("faoxima", payload);
 
 export const setExternalAppEnabled = async (payload: {
 	id: string;
@@ -636,24 +653,9 @@ export const getPHPMyAdminEmbedHTML = async (
 	theme?: string,
 ): Promise<string> => {
 	const search = theme ? `?theme=${encodeURIComponent(theme)}` : "";
-	const response = await fetch(
-		`${apiBaseURL}/settings/phpmyadmin/embed-html${search}`,
-		{
-			cache: "no-store",
-			credentials: "include",
-		},
-	);
-	if (!response.ok) {
-		let detail = await response.text();
-		try {
-			const parsed = JSON.parse(detail);
-			detail = parsed?.detail || detail;
-		} catch {
-			// keep raw response body
-		}
-		throw new Error(detail || `Request failed with status ${response.status}`);
-	}
-	return response.text();
+	return apiFetch<string>(`/settings/phpmyadmin/embed-html${search}`, {
+		responseType: "text",
+	} as any);
 };
 
 export const getPanelSettings = async (): Promise<PanelSettingsResponse> => {
@@ -679,12 +681,19 @@ export const exportRebeccaBackup = async (
 };
 
 export const importRebeccaBackup = async (
-	file: File,
+	files: File | File[],
 	onProgress?: (percent: number) => void,
 ): Promise<RebeccaBackupImportResponse> => {
 	return new Promise((resolve, reject) => {
+		const errorKey = "POST /settings/backup/import";
+		const fail = (error: Error) => {
+			reportAPIError(errorKey, error);
+			reject(error);
+		};
 		const body = new FormData();
-		body.append("file", file);
+		for (const file of Array.isArray(files) ? files : [files]) {
+			body.append("file", file);
+		}
 		const xhr = new XMLHttpRequest();
 		const baseURL = (apiBaseURL || "/api").replace(/\/$/, "");
 		xhr.open("POST", `${baseURL}/settings/backup/import`);
@@ -713,6 +722,7 @@ export const importRebeccaBackup = async (
 		xhr.onload = () => {
 			const response = responseBody();
 			if (xhr.status >= 200 && xhr.status < 300) {
+				useAPIRequestErrors.getState().clear(errorKey);
 				resolve(response as RebeccaBackupImportResponse);
 				return;
 			}
@@ -733,10 +743,10 @@ export const importRebeccaBackup = async (
 				status: xhr.status,
 				_data: response,
 			};
-			reject(error);
+			fail(error);
 		};
-		xhr.onerror = () => reject(new Error("Backup upload failed; check your connection and retry"));
-		xhr.ontimeout = () => reject(new Error("Backup upload timed out; retry with a stable connection"));
+		xhr.onerror = () => fail(new Error("Backup upload failed; check your connection and retry"));
+		xhr.ontimeout = () => fail(new Error("Backup upload timed out; retry with a stable connection"));
 		xhr.onabort = () => reject(new Error("Backup upload was cancelled"));
 		onProgress?.(0);
 		xhr.send(body);
@@ -771,6 +781,15 @@ export const issueSubscriptionCertificate = async (
 	payload: CertificateIssuePayload,
 ): Promise<SubscriptionCertificate> => {
 	return apiFetch("/settings/subscriptions/certificates/issue", {
+		method: "POST",
+		body: JSON.stringify(payload),
+	});
+};
+
+export const issueNodeSubscriptionCertificate = async (
+	payload: NodeCertificateIssuePayload,
+): Promise<SubscriptionCertificate> => {
+	return apiFetch("/settings/subscriptions/certificates/issue-node", {
 		method: "POST",
 		body: JSON.stringify(payload),
 	});

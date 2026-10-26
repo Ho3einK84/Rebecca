@@ -1,42 +1,25 @@
-import {
-	Alert,
-	AlertIcon,
-	Box,
-	Button,
-	FormControl,
-	FormLabel,
-	HStack,
-	Modal,
-	ModalBody,
-	ModalCloseButton,
-	ModalContent,
-	ModalFooter,
-	ModalHeader,
-	ModalOverlay,
-	Popover,
-	PopoverBody,
-	PopoverContent,
-	PopoverHeader,
-	PopoverTrigger,
-	Progress,
-	Stack,
-	Text,
-	useToast,
-} from "@chakra-ui/react";
-import {
-	ArchiveBoxIcon,
-	ArrowDownTrayIcon,
-	ArrowUpTrayIcon,
-} from "@heroicons/react/24/outline";
+import { Button } from "components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "components/ui/popover";
+import { Dialog, DialogContent, DialogFooter, DialogHeader } from "components/ui/dialog";
+import { Alert } from "components/ui/alert";
+import { Field, FieldLabel } from "components/ui/field";
+import { Progress } from "components/ui/progress";
+import { toast } from "components/ui/sonner";
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
+import { Archive, Download, Upload } from "lucide-react";
+
+import { cn } from "lib/cn";
 import { PanelSelect as Select } from "components/common/PanelSelect";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useMutation } from "react-query";
+import { useMutation } from "@tanstack/react-query";
 import {
 	exportRebeccaBackup,
 	importRebeccaBackup,
 	type RebeccaBackupScope,
 } from "service/settings";
+import { checkBackupParts, parseBackupPartName } from "utils/backupParts";
+import { formatBytes } from "utils/formatByte";
 import {
 	generateErrorMessage,
 	generateSuccessMessage,
@@ -58,17 +41,16 @@ export const DashboardBackupControls = ({
 	runtimeLoading: boolean;
 }) => {
 	const { t } = useTranslation();
-	const toast = useToast();
+	
 	const [isMenuOpen, setMenuOpen] = useState(false);
 	const [dialog, setDialog] = useState<BackupDialog>(null);
 	const [exportScope, setExportScope] =
 		useState<RebeccaBackupScope>("database");
-	const [selectedFile, setSelectedFile] = useState<File | null>(null);
+	const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 	const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 	const backupActionsAvailable = isBinaryRuntime && !runtimeLoading;
 
-	const exportMutation = useMutation(exportRebeccaBackup, {
-		onSuccess: (blob, scope) => {
+	const exportMutation = useMutation({ mutationFn: exportRebeccaBackup, onSuccess: (blob, scope) => {
 			const url = URL.createObjectURL(blob);
 			const anchor = document.createElement("a");
 			anchor.href = url;
@@ -82,13 +64,9 @@ export const DashboardBackupControls = ({
 		},
 		onError: (error) => {
 			generateErrorMessage(error, toast);
-		},
-	});
+		}, });
 
-	const importMutation = useMutation(
-		(file: File) => importRebeccaBackup(file, setUploadProgress),
-		{
-			onMutate: () => setUploadProgress(0),
+	const importMutation = useMutation({ mutationFn: (files: File[]) => importRebeccaBackup(files, setUploadProgress), onMutate: () => setUploadProgress(0),
 			onSuccess: (result) => {
 				generateSuccessMessage(
 					t("dashboard.backup.importDone", {
@@ -98,230 +76,193 @@ export const DashboardBackupControls = ({
 					toast,
 				);
 				if (result.warnings.length) {
-					toast({
-						status: "warning",
-						title: t("dashboard.backup.importWarnings"),
-						description: result.warnings.join("\n"),
-						duration: 8000,
-						isClosable: true,
-					});
+					toast.warning(t("dashboard.backup.importWarnings"), { description: result.warnings.join("\n"), duration: 8000 });
 				}
-				setSelectedFile(null);
+				setSelectedFiles([]);
 				setDialog(null);
 			},
 			onError: (error) => {
 				generateErrorMessage(error, toast);
 			},
-			onSettled: () => setUploadProgress(null),
-		},
-	);
+			onSettled: () => setUploadProgress(null), });
 
 	const openDialog = (nextDialog: Exclude<BackupDialog, null>) => {
 		setMenuOpen(false);
 		setDialog(nextDialog);
 	};
 
+	const partCheck = checkBackupParts(selectedFiles.map((file) => file.name));
+	const canImport =
+		partCheck.status === "single" || partCheck.status === "complete";
+	const partStatusText =
+		partCheck.status === "complete"
+			? t("dashboard.backup.partsComplete", { total: partCheck.total })
+			: partCheck.status === "incomplete"
+				? t("dashboard.backup.partsMissing", {
+						total: partCheck.total,
+						missing: partCheck.missing.join(", "),
+					})
+				: partCheck.status === "invalid"
+					? t("dashboard.backup.partsInvalid")
+					: null;
+
+	const displayFiles = [...selectedFiles].sort(
+		(left, right) =>
+			(parseBackupPartName(left.name)?.index ?? 0) -
+			(parseBackupPartName(right.name)?.index ?? 0),
+	);
+
+	const addFiles = (files: File[]) => {
+		setSelectedFiles((current) => {
+			const next = [...current];
+			for (const file of files) {
+				if (
+					!next.some(
+						(item) => item.name === file.name && item.size === file.size,
+					)
+				) {
+					next.push(file);
+				}
+			}
+			return next;
+		});
+	};
+
 	const handleImport = () => {
-		if (!selectedFile) {
-			toast({ status: "warning", title: t("dashboard.backup.fileRequired") });
+		if (partCheck.status === "empty") {
+			toast.warning(t("dashboard.backup.fileRequired"));
 			return;
 		}
-		importMutation.mutate(selectedFile);
+		if (canImport) {
+			importMutation.mutate(selectedFiles);
+		}
 	};
 
 	return (
 		<>
-			<Popover
-				isOpen={isMenuOpen}
-				onOpen={() => setMenuOpen(true)}
-				onClose={() => setMenuOpen(false)}
-				placement="bottom-end"
-				closeOnBlur={true}
-				isLazy
-			>
-				<PopoverTrigger>
-					<Button
-						size="xs"
-						h="32px"
-						w={{ base: "full", sm: "auto" }}
-						px={3.5}
-						variant="outline"
-						borderRadius="full"
-						isDisabled={!backupActionsAvailable || runtimeLoading}
-						borderColor="panel.border"
-						color="panel.text"
-						_hover={{ bg: "panel.elevated", borderColor: "panel.borderStrong" }}
-						transition="border-color 0.25s ease, background-color 0.25s ease"
-						whiteSpace="nowrap"
-					>
-						<HStack spacing={1.5} align="center" justify="center" w="full">
-							<Box as="span" display="inline-flex" alignItems="center" justifyContent="center" flexShrink={0}>
-								<ArchiveBoxIcon width={15} height={15} />
-							</Box>
-							<Text as="span" fontSize="12px" fontWeight="600" lineHeight="none">
+			<Popover open={isMenuOpen} onOpenChange={setMenuOpen}>
+				<PopoverTrigger asChild>
+					<Button disabled={!backupActionsAvailable || runtimeLoading} variant="outline" size="xs" className="h-[32px] w-full sm:w-auto px-3.5 rounded-full border-panel-border! text-panel-text hover:bg-panel-elevated hover:border-panel-border-strong! [transition:border-color_0.25s_ease,_background-color_0.25s_ease] whitespace-nowrap">
+						<div className="flex flex-row gap-1.5 items-center justify-center w-full">
+							<span className="inline-flex items-center justify-center shrink-0">
+								<Archive className="w-[15px] h-[15px]" />
+							</span>
+							<span className="text-[12px] font-semibold leading-none">
 								{t("dashboard.backup.tabTitle")}
-							</Text>
-						</HStack>
+							</span>
+						</div>
 					</Button>
 				</PopoverTrigger>
-				<PopoverContent
-					w="min(280px, calc(100vw - 24px))"
-					borderRadius="2xl"
-					boxShadow="0 24px 60px rgba(0,0,0,0.5)"
-					bg="panel.surface"
-					borderColor="panel.border"
-					borderWidth="1px"
-				>
-					<PopoverHeader fontWeight="700" fontSize="13px" py={3} px={4} borderColor="panel.border">
+				<PopoverContent className="w-[min(280px,_calc(100vw_-_24px))] rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.5)] bg-panel-surface border-panel-border! border">
+					<div className={cn("p-3 font-semibold", "font-bold text-[13px] py-3 px-4 border-panel-border!")}>
 						{t("dashboard.backup.title")}
-					</PopoverHeader>
-					<PopoverBody p={2}>
-						<Stack spacing={1}>
-							<Button
-								variant="ghost"
-								justifyContent="flex-start"
-								fontSize="13px"
-								borderRadius="xl"
-								h="36px"
-								leftIcon={<ArrowUpTrayIcon width={16} height={16} />}
-								onClick={() => openDialog("import")}
-								_hover={{ bg: "panel.elevated" }}
-								transition="background-color 0.2s ease"
-							>
+					</div>
+					<div className={cn("p-3", "p-2")}>
+						<div className="flex flex-col gap-1">
+							<Button onClick={() => openDialog("import")} variant="ghost" className="justify-start text-[13px] rounded-xl h-[36px] hover:bg-panel-elevated [transition:background-color_0.2s_ease]">{<Upload className="w-[16px] h-[16px]" />}
 								{t("dashboard.backup.import")}
 							</Button>
-							<Button
-								variant="ghost"
-								justifyContent="flex-start"
-								fontSize="13px"
-								borderRadius="xl"
-								h="36px"
-								leftIcon={<ArrowDownTrayIcon width={16} height={16} />}
-								onClick={() => openDialog("export")}
-								_hover={{ bg: "panel.elevated" }}
-								transition="background-color 0.2s ease"
-							>
+							<Button onClick={() => openDialog("export")} variant="ghost" className="justify-start text-[13px] rounded-xl h-[36px] hover:bg-panel-elevated [transition:background-color_0.2s_ease]">{<Download className="w-[16px] h-[16px]" />}
 								{t("dashboard.backup.exportTitle")}
 							</Button>
-						</Stack>
-					</PopoverBody>
+						</div>
+					</div>
 				</PopoverContent>
 			</Popover>
 
-			<Modal
-				isOpen={dialog === "import"}
-				onClose={() => setDialog(null)}
-				isCentered
-				size="xl"
-				closeOnOverlayClick={!importMutation.isLoading}
-			>
-				<ModalOverlay bg="blackAlpha.700" backdropFilter="blur(8px)" />
-				<ModalContent
-					borderWidth="1px"
-					borderColor="panel.border"
-					borderRadius="2xl"
-					boxShadow="0 32px 80px rgba(0,0,0,0.5)"
-					bg="panel.surface"
-					mx={{ base: 4, sm: 0 }}
-				>
-					<ModalHeader fontSize="md" fontWeight="700" color="panel.text">{t("dashboard.backup.import")}</ModalHeader>
-					<ModalCloseButton isDisabled={importMutation.isLoading} />
-					<ModalBody py={4}>
-						<Stack spacing={4}>
-							<Text fontSize="13px" color="panel.textMuted">
+			<Dialog open={dialog === "import"} onOpenChange={(open) => { if (!open) (() => setDialog(null))(); }}>
+				
+				<DialogContent className="border border-panel-border! rounded-2xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] bg-panel-surface mx-4 sm:mx-0">
+					<DialogHeader className="text-[1rem] font-bold text-panel-text">{t("dashboard.backup.import")}</DialogHeader>
+					
+					<div className={cn("px-5 py-4 overflow-y-auto", "py-4")}>
+						<div className="flex flex-col gap-4">
+							<p className="text-[13px] text-panel-text-muted">
 								{t("dashboard.backup.importHint")}
-							</Text>
-							<Alert status="warning" borderRadius="xl" fontSize="13px">
-								<AlertIcon />
-								<Text fontSize="12px">
+							</p>
+							<Alert className="rounded-xl text-[13px]">
+								<TriangleAlert className="size-4" aria-hidden="true" />
+								<p className="text-[12px]">
 									{t("dashboard.backup.autoDetectImportWarning")}
-								</Text>
+								</p>
 							</Alert>
-							<FormControl isRequired>
-								<FormLabel fontSize="13px" fontWeight="600" color="panel.textSecondary">{t("dashboard.backup.file")}</FormLabel>
+							<Field>
+								<FieldLabel className="text-[13px] font-semibold text-panel-text-secondary">{t("dashboard.backup.file")}</FieldLabel>
 								<FileDropzone
-									accept=".rbbackup,application/vnd.rebecca.backup,application/gzip"
-									isDisabled={
-										!backupActionsAvailable || importMutation.isLoading
+									accept=".rbbackup,.tar.gz,.tgz,.zip,application/vnd.rebecca.backup,application/gzip,application/x-gzip,application/zip,application/x-tar,application/octet-stream"
+									disabled={
+										!backupActionsAvailable || importMutation.isPending
 									}
-									selectedFile={selectedFile}
+									multiple
+								selectedFiles={selectedFiles}
 									title={t("dashboard.backup.dropTitle")}
 									description={t("dashboard.backup.dropHint")}
 									emptyText={t("dashboard.backup.selectFile")}
-									onFileSelect={setSelectedFile}
+									onFilesSelect={addFiles}
 								/>
-							</FormControl>
-							{importMutation.isLoading && uploadProgress !== null && (
-								<Stack spacing={2} aria-live="polite">
-									<Text fontSize="12px" fontWeight="600">
+							</Field>
+							<p className="text-[12px] text-panel-text-muted">
+								{t("dashboard.backup.multiPartHint")}
+							</p>
+							{selectedFiles.length > 0 && (
+								<div className="flex flex-col gap-2">
+									{displayFiles.map((file) => (
+										<div key={`${file.name}-${file.size}`} className="flex flex-row items-center justify-between gap-3">
+											<p className="text-[12px] truncate">
+												{file.name}
+											</p>
+											<p className="text-[12px] text-panel-text-muted whitespace-nowrap">
+												{formatBytes(file.size, 2)}
+											</p>
+										</div>
+									))}
+									{partStatusText && (
+										<p className={cn("text-[12px]", canImport ? "text-panel-text-muted" : "text-red-300")}>
+											{partStatusText}
+										</p>
+									)}
+									<Button onClick={() => setSelectedFiles([])} variant="ghost" size="xs" className="self-start">
+										{t("dashboard.backup.clearFiles")}
+									</Button>
+								</div>
+							)}
+							{importMutation.isPending && uploadProgress !== null && (
+								<div aria-live="polite" className="flex flex-col gap-2">
+									<p className="text-[12px] font-semibold">
 										{uploadProgress < 100
 											? t("dashboard.backup.uploadProgress", {
 													percent: uploadProgress,
 												})
 											: t("dashboard.backup.processing")}
-									</Text>
-									<Progress
-										value={uploadProgress}
-										isIndeterminate={uploadProgress >= 100}
-										colorScheme="primary"
-										borderRadius="full"
-										size="xs"
-										h="4px"
-									/>
-								</Stack>
+									</p>
+									<Progress value={uploadProgress} className="rounded-full h-[4px]" />
+								</div>
 							)}
-						</Stack>
-					</ModalBody>
-					<ModalFooter gap={2} borderTopWidth="1px" borderColor="panel.border">
-						<Button
-							variant="ghost"
-							size="sm"
-							borderRadius="full"
-							onClick={() => setDialog(null)}
-							isDisabled={importMutation.isLoading}
-						>
+						</div>
+					</div>
+					<DialogFooter className="gap-2 border-t border-panel-border!">
+						<Button onClick={() => setDialog(null)} disabled={importMutation.isPending} variant="ghost" size="sm" className="rounded-full">
 							{t("cancel")}
 						</Button>
-						<Button
-							colorScheme="red"
-							size="sm"
-							borderRadius="full"
-							px={5}
-							leftIcon={<ArrowUpTrayIcon width={15} height={15} />}
-							onClick={handleImport}
-							isLoading={importMutation.isLoading}
-						>
+						<Button onClick={handleImport} disabled={!canImport} variant="destructive" size="sm" loading={importMutation.isPending} className="rounded-full px-5">{<Upload className="w-[15px] h-[15px]" />}
 							{t("dashboard.backup.import")}
 						</Button>
-					</ModalFooter>
-				</ModalContent>
-			</Modal>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 
-			<Modal
-				isOpen={dialog === "export"}
-				onClose={() => setDialog(null)}
-				isCentered
-				size="md"
-				closeOnOverlayClick={!exportMutation.isLoading}
-			>
-				<ModalOverlay bg="blackAlpha.700" backdropFilter="blur(8px)" />
-				<ModalContent
-					borderWidth="1px"
-					borderColor="panel.border"
-					borderRadius="2xl"
-					boxShadow="0 32px 80px rgba(0,0,0,0.5)"
-					bg="panel.surface"
-					mx={{ base: 4, sm: 0 }}
-				>
-					<ModalHeader fontSize="md" fontWeight="700" color="panel.text">{t("dashboard.backup.exportTitle")}</ModalHeader>
-					<ModalCloseButton isDisabled={exportMutation.isLoading} />
-					<ModalBody py={4}>
-						<Stack spacing={4}>
-							<Text fontSize="13px" color="panel.textMuted">
+			<Dialog open={dialog === "export"} onOpenChange={(open) => { if (!open) (() => setDialog(null))(); }}>
+				
+				<DialogContent className="border border-panel-border! rounded-2xl shadow-[0_32px_80px_rgba(0,0,0,0.5)] bg-panel-surface mx-4 sm:mx-0">
+					<DialogHeader className="text-[1rem] font-bold text-panel-text">{t("dashboard.backup.exportTitle")}</DialogHeader>
+					
+					<div className={cn("px-5 py-4 overflow-y-auto", "py-4")}>
+						<div className="flex flex-col gap-4">
+							<p className="text-[13px] text-panel-text-muted">
 								{t("dashboard.backup.exportHint")}
-							</Text>
-							<FormControl>
-								<FormLabel fontSize="13px" fontWeight="600" color="panel.textSecondary">{t("dashboard.backup.scope")}</FormLabel>
+							</p>
+							<Field>
+								<FieldLabel className="text-[13px] font-semibold text-panel-text-secondary">{t("dashboard.backup.scope")}</FieldLabel>
 								<Select
 									value={exportScope}
 									showSearch={false}
@@ -334,33 +275,19 @@ export const DashboardBackupControls = ({
 									</option>
 									<option value="full">{t("dashboard.backup.full")}</option>
 								</Select>
-							</FormControl>
-						</Stack>
-					</ModalBody>
-					<ModalFooter gap={2} borderTopWidth="1px" borderColor="panel.border">
-						<Button
-							variant="ghost"
-							size="sm"
-							borderRadius="full"
-							onClick={() => setDialog(null)}
-							isDisabled={exportMutation.isLoading}
-						>
+							</Field>
+						</div>
+					</div>
+					<DialogFooter className="gap-2 border-t border-panel-border!">
+						<Button onClick={() => setDialog(null)} disabled={exportMutation.isPending} variant="ghost" size="sm" className="rounded-full">
 							{t("cancel")}
 						</Button>
-						<Button
-							colorScheme="primary"
-							size="sm"
-							borderRadius="full"
-							px={5}
-							leftIcon={<ArrowDownTrayIcon width={15} height={15} />}
-							onClick={() => exportMutation.mutate(exportScope)}
-							isLoading={exportMutation.isLoading}
-						>
+						<Button onClick={() => exportMutation.mutate(exportScope)} size="sm" loading={exportMutation.isPending} className="rounded-full px-5">{<Download className="w-[15px] h-[15px]" />}
 							{t("dashboard.backup.download")}
 						</Button>
-					</ModalFooter>
-				</ModalContent>
-			</Modal>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</>
 	);
 };

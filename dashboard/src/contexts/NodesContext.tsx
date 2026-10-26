@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { useQuery, useQueryClient } from "react-query";
-import { fetch } from "service/http";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { fetch, reportAPIError, useAPIRequestErrors } from "service/http";
 import { getAPIWebSocketURL } from "utils/websocket";
 import { z } from "zod";
 import { create } from "zustand";
@@ -24,7 +24,7 @@ const configSchema = z
 					return z.NEVER;
 				}
 			}),
-		z.record(z.any()),
+		z.record(z.string(), z.any()),
 		z.null(),
 	])
 	.nullish();
@@ -220,7 +220,7 @@ export const getNodeDefaultValues = (): NodeType => ({
 	hysteria_config: null,
 });
 
-export const FetchNodesQueryKey = "fetch-nodes-query-key";
+export const FetchNodesQueryKey = ["fetch-nodes-query-key"] as const;
 
 const liveMetricKeys: Array<keyof NodeType> = [
 	"cpu_usage_percent",
@@ -305,7 +305,7 @@ export const useNodesQuery = (options?: { enabled?: boolean }) => {
 			});
 		},
 		refetchOnWindowFocus: false,
-		keepPreviousData: true,
+		placeholderData: keepPreviousData,
 		enabled: options?.enabled ?? true,
 	});
 };
@@ -389,10 +389,15 @@ export const useNodeMetricsStream = (enabled = true) => {
 			ws.onmessage = (event) => {
 				try {
 					const payload = JSON.parse(event.data);
+					if (payload?.error) {
+						reportAPIError("STREAM /nodes/metrics", payload);
+						return;
+					}
 					const liveNodes = Array.isArray(payload) ? payload : payload?.nodes;
 					if (!Array.isArray(liveNodes)) {
 						return;
 					}
+					useAPIRequestErrors.getState().clear("STREAM /nodes/metrics");
 					pendingNodes = mergeLiveNodes(pendingNodes, liveNodes);
 					if (!flushTimer) {
 						flushTimer = window.setTimeout(flush, 100);

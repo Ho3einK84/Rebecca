@@ -17,6 +17,8 @@ export type AdminFilters = {
 	limit: number;
 	offset: number;
 	sort: string;
+	roleFilter: string;
+	statusFilter: string;
 };
 
 type AdminsStore = {
@@ -32,8 +34,6 @@ type AdminsStore = {
 	filters: AdminFilters;
 	isAdminDialogOpen: boolean;
 	adminInDialog: Admin | null;
-	isAdminDetailsOpen: boolean;
-	adminInDetails: Admin | null;
 	fetchAdmins: (
 		overrides?: Partial<AdminFilters>,
 		options?: { force?: boolean },
@@ -59,8 +59,31 @@ type AdminsStore = {
 	) => Promise<StandardAdminPermissionsBulkResponse>;
 	openAdminDialog: (admin?: Admin) => void;
 	closeAdminDialog: () => void;
-	openAdminDetails: (admin: Admin) => void;
-	closeAdminDetails: () => void;
+};
+
+const buildAdminQuery = (filters: AdminFilters) => {
+	const query: Record<string, string | number> = {};
+	if (filters.search) {
+		query.username = filters.search;
+		query.match_case = String(filters.matchCase);
+		query.match_whole_word = String(filters.matchWholeWord);
+	}
+	if (filters.offset !== undefined) {
+		query.offset = filters.offset;
+	}
+	if (filters.limit !== undefined) {
+		query.limit = filters.limit;
+	}
+	if (filters.roleFilter) {
+		query.role = filters.roleFilter;
+	}
+	if (filters.statusFilter) {
+		query.status = filters.statusFilter;
+	}
+	if (filters.sort) {
+		query.sort = filters.sort;
+	}
+	return query;
 };
 
 const createDefaultFilters = (): AdminFilters => ({
@@ -70,6 +93,8 @@ const createDefaultFilters = (): AdminFilters => ({
 	limit: getAdminsPerPageLimitSize(),
 	offset: 0,
 	sort: "username",
+	roleFilter: "",
+	statusFilter: "",
 });
 
 const isAbortError = (error: unknown): boolean => {
@@ -138,8 +163,6 @@ export const clearAdminsCache = () => {
 		filters: createDefaultFilters(),
 		isAdminDialogOpen: false,
 		adminInDialog: null,
-		isAdminDetailsOpen: false,
-		adminInDetails: null,
 	});
 };
 
@@ -156,8 +179,6 @@ export const useAdminsStore = create<AdminsStore>((set, get) => ({
 	filters: createDefaultFilters(),
 	isAdminDialogOpen: false,
 	adminInDialog: null,
-	isAdminDetailsOpen: false,
-	adminInDetails: null,
 	async fetchAdmins(overrides, options) {
 		const {
 			filters: stateFilters,
@@ -175,27 +196,7 @@ export const useAdminsStore = create<AdminsStore>((set, get) => ({
 			...stateFilters,
 			...overrides,
 		};
-		const query: Record<string, string | number> = {};
-		if (filters.search) {
-			query.username = filters.search;
-			query.match_case = String(filters.matchCase);
-			query.match_whole_word = String(filters.matchWholeWord);
-		}
-		if (filters.offset !== undefined) {
-			query.offset = filters.offset;
-		}
-		if (filters.limit !== undefined) {
-			query.limit = filters.limit;
-		}
-		if (filters.sort) {
-			if (filters.sort === "data_usage") {
-				query.sort = "users_usage";
-			} else if (filters.sort === "data_limit") {
-				query.sort = "data_limit";
-			} else {
-				query.sort = filters.sort;
-			}
-		}
+		const query = buildAdminQuery(filters);
 
 		const requestKey = JSON.stringify(query);
 		if (loading && currentRequestKey === requestKey && inflight) {
@@ -237,20 +238,12 @@ export const useAdminsStore = create<AdminsStore>((set, get) => ({
 					filters,
 				);
 
-				set((state) => {
-					const currentDetails = state.adminInDetails
-						? admins.find(
-								(admin) => admin.username === state.adminInDetails?.username,
-							) || state.adminInDetails
-						: null;
-					return {
-						admins,
-						total,
-						adminInDetails: currentDetails,
-						lastFetchedAt: now,
-						cacheAuthToken: currentAuthToken,
-						currentRequestKey: requestKey,
-					};
+				set({
+					admins,
+					total,
+					lastFetchedAt: now,
+					cacheAuthToken: currentAuthToken,
+					currentRequestKey: requestKey,
 				});
 			} catch (error) {
 				if (
@@ -264,7 +257,6 @@ export const useAdminsStore = create<AdminsStore>((set, get) => ({
 				set({
 					admins: [],
 					total: 0,
-					adminInDetails: null,
 					lastFetchedAt: null,
 					cacheAuthToken: null,
 					currentRequestKey: null,
@@ -292,23 +284,11 @@ export const useAdminsStore = create<AdminsStore>((set, get) => ({
 			limit: 1000,
 			offset: 0,
 			sort: "username",
+			roleFilter: "",
+			statusFilter: "",
 			...overrides,
 		};
-		const query: Record<string, string | number> = {};
-		if (filters.search) {
-			query.username = filters.search;
-			query.match_case = String(filters.matchCase);
-			query.match_whole_word = String(filters.matchWholeWord);
-		}
-		if (filters.offset !== undefined) {
-			query.offset = filters.offset;
-		}
-		if (filters.limit !== undefined) {
-			query.limit = filters.limit;
-		}
-		if (filters.sort) {
-			query.sort = filters.sort;
-		}
+		const query = buildAdminQuery(filters);
 
 		if (
 			!force &&
@@ -456,11 +436,5 @@ export const useAdminsStore = create<AdminsStore>((set, get) => ({
 	},
 	closeAdminDialog() {
 		set({ isAdminDialogOpen: false, adminInDialog: null });
-	},
-	openAdminDetails(admin) {
-		set({ isAdminDetailsOpen: true, adminInDetails: admin });
-	},
-	closeAdminDetails() {
-		set({ isAdminDetailsOpen: false, adminInDetails: null });
 	},
 }));

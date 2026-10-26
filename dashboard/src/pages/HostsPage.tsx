@@ -1,5 +1,6 @@
-import { HStack, Icon, Text, VStack } from "@chakra-ui/react";
-import { LinkIcon, Squares2X2Icon } from "@heroicons/react/24/outline";
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
+import { Link, LayoutGrid } from "lucide-react";
+
 import { HostsManager } from "components/HostsManager";
 import { InboundsManager } from "components/InboundsManager";
 import { PageHeader, TabSystem } from "components/ui";
@@ -8,8 +9,10 @@ import { useHosts } from "contexts/HostsContext";
 import useGetUser from "hooks/useGetUser";
 import { type FC, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router-dom";
 
 export const HostsPage: FC = () => {
+	const location = useLocation();
 	const { t } = useTranslation();
 	const { userData, getUserIsSuccess } = useGetUser();
 	const fetchHosts = useHosts((state) => state.fetchHosts);
@@ -19,13 +22,13 @@ export const HostsPage: FC = () => {
 	const canManageHosts =
 		getUserIsSuccess && Boolean(userData.permissions?.sections.hosts);
 	const readHashTab = useCallback(
-		() => (window.location.hash || "").replace(/^#/, "").toLowerCase(),
+		(hash = window.location.hash) => (hash || "").replace(/^#/, "").toLowerCase(),
 		[],
 	);
 
 	useEffect(() => {
-		const syncFromHash = () => {
-			const idx = tabKeys.indexOf(readHashTab());
+		const syncFromHash = (hash: string) => {
+			const idx = tabKeys.indexOf(readHashTab(hash));
 			if (idx >= 0) {
 				setActiveTab(idx);
 			} else {
@@ -37,10 +40,11 @@ export const HostsPage: FC = () => {
 				);
 			}
 		};
-		syncFromHash();
-		window.addEventListener("hashchange", syncFromHash);
-		return () => window.removeEventListener("hashchange", syncFromHash);
-	}, [readHashTab, tabKeys]);
+		syncFromHash(location.hash);
+		const onHashChange = () => syncFromHash(window.location.hash);
+		window.addEventListener("hashchange", onHashChange);
+		return () => window.removeEventListener("hashchange", onHashChange);
+	}, [location.hash, readHashTab, tabKeys]);
 
 	useEffect(() => {
 		if (activeTab !== hostsTabIndex) {
@@ -60,17 +64,17 @@ export const HostsPage: FC = () => {
 	};
 	if (!canManageHosts) {
 		return (
-			<VStack spacing={4} align="stretch">
+			<div className="flex flex-col gap-4 items-stretch">
 				<PageHeader title={t("header.hostSettings")} />
-				<Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }}>
+				<p className="text-[0.875rem] text-gray-500 dark:text-gray-400">
 					{t("hostsPage.noPermission")}
-				</Text>
-			</VStack>
+				</p>
+			</div>
 		);
 	}
 
 	return (
-		<VStack spacing={4} align="stretch">
+		<div className="flex flex-col gap-4 items-stretch">
 			<TabSystem
 				tabs={[
 					{
@@ -78,10 +82,10 @@ export const HostsPage: FC = () => {
 						isActive: activeTab === 0,
 						onClick: () => handleTabChange(0),
 						label: (
-							<HStack spacing={2}>
-								<Icon as={LinkIcon} w={4} h={4} />
+							<div className="flex flex-row items-center gap-2">
+								<Link className="w-4 h-4" />
 								<span>{t("hostsPage.tabInbounds")}</span>
-							</HStack>
+							</div>
 						),
 					},
 					{
@@ -89,24 +93,24 @@ export const HostsPage: FC = () => {
 						isActive: activeTab === 1,
 						onClick: () => handleTabChange(1),
 						label: (
-							<HStack spacing={2}>
-								<Icon as={Squares2X2Icon} w={4} h={4} />
+							<div className="flex flex-row items-center gap-2">
+								<LayoutGrid className="w-4 h-4" />
 								<span>{t("hostsPage.tabHosts")}</span>
-							</HStack>
+							</div>
 						),
 					},
 				]}
 			/>
 			{activeTab === 0 ? (
-				<VStack mt={3} spacing={4} align="stretch">
+				<div className="flex flex-col mt-3 gap-4 items-stretch">
 					<InboundsManager />
-				</VStack>
+				</div>
 			) : (
-				<VStack mt={3} spacing={4} align="stretch">
+				<div className="flex flex-col mt-3 gap-4 items-stretch">
 					<HostsManager />
-				</VStack>
+				</div>
 			)}
-		</VStack>
+		</div>
 	);
 };
 
