@@ -899,6 +899,7 @@
 	"inbounds.error.tagExists": "تگ اینباند تکراری است",
 	"inbounds.error.portExists": "پورت اینباند تکراری است",
 	"inbounds.portWarningBlocked": "این پورت معمولا توسط سرور یا فایروال بسته است، بهتره استفاده نشه.",
+	"inbounds.portListHint": "برای چند پورت، با کاما جدا کنید، مثلاً 443,8443. برای هر پورت یک لینک ساخته می‌شود.",
 	"inbounds.fallbacks": "Fallback ها",
 	"inbounds.fallbacks.add": "افزودن fallback",
 	"inbounds.fallbacks.alpn": "ALPN",

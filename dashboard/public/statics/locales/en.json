@@ -900,6 +900,7 @@
 	"inbounds.error.tagExists": "Inbound tag already exists",
 	"inbounds.error.portExists": "Inbound port already exists",
 	"inbounds.portWarningBlocked": "This port is commonly blocked by servers/firewalls. Better to avoid it.",
+	"inbounds.portListHint": "Separate several ports with commas, e.g. 443,8443. Each port gets its own link.",
 	"inbounds.fallbacks": "Fallbacks",
 	"inbounds.fallbacks.add": "Add fallback",
 	"inbounds.fallbacks.alpn": "ALPN",
