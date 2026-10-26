@@ -248,10 +248,13 @@ const formatNodeUptime = (value?: number | null) => {
 	return parts.join(" ");
 };
 
+const nodeNameSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 const formatNodeNamePreview = (value?: string | null) => {
 	const text = value?.trim();
 	if (!text) return "";
-	return text.length > 10 ? `${text.slice(0, 10)}...` : text;
+	const graphemes = Array.from(nodeNameSegmenter.segment(text), ({ segment }) => segment);
+	return graphemes.length > 10 ? `${graphemes.slice(0, 10).join("")}...` : text;
 };
 
 const boundedPercent = (value?: number | null) =>
